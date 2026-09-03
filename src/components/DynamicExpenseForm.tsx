@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -25,6 +26,7 @@ function emptyRow(): ExpenseRowState {
 }
 
 export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
+  const queryClient = useQueryClient();
   const { data: config, isLoading, isError } = useCompanyConfig(auth.user.companySlug);
   const [rows, setRows] = useState<ExpenseRowState[]>([emptyRow()]);
   const [departmentId, setDepartmentId] = useState("");
@@ -83,6 +85,7 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
         },
       });
       setSubmitState({ status: "success", message: "申請單已送出，等待簽核" });
+      queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
       setRows([emptyRow()]);
       setPurpose("");
       setPayeeName("");

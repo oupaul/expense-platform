@@ -4,11 +4,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { apiFetch, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationListItem } from "@/types/application";
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { ApplicationDetail } from "@/components/ApplicationDetail";
 
 export function PendingApprovals({ auth }: { auth: AuthState }) {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["applications", auth.user.companyId, "pending"],
@@ -52,19 +54,34 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data.map((app) => (
-            <TableRow key={app.id}>
-              <TableCell>{app.applicant.name}</TableCell>
-              <TableCell>{app.department.name}</TableCell>
-              <TableCell>{new Date(app.applicationDate).toLocaleDateString("zh-TW")}</TableCell>
-              <TableCell>{app.purpose ?? "-"}</TableCell>
-              <TableCell>{app.totalAmountTWD}</TableCell>
-              <TableCell className="space-x-2">
-                <Button size="sm" onClick={() => decide(app.id, "approve")}>核准</Button>
-                <Button size="sm" variant="destructive" onClick={() => decide(app.id, "reject")}>駁回</Button>
-              </TableCell>
-            </TableRow>
-          ))}
+          {data.map((app) => {
+            const expanded = expandedId === app.id;
+            return (
+              <Fragment key={app.id}>
+                <TableRow>
+                  <TableCell>{app.applicant.name}</TableCell>
+                  <TableCell>{app.department.name}</TableCell>
+                  <TableCell>{new Date(app.applicationDate).toLocaleDateString("zh-TW")}</TableCell>
+                  <TableCell>{app.purpose ?? "-"}</TableCell>
+                  <TableCell>{app.totalAmountTWD}</TableCell>
+                  <TableCell className="space-x-2">
+                    <Button size="sm" variant="outline" onClick={() => setExpandedId(expanded ? null : app.id)}>
+                      {expanded ? "收合" : "查看明細"}
+                    </Button>
+                    <Button size="sm" onClick={() => decide(app.id, "approve")}>核准</Button>
+                    <Button size="sm" variant="destructive" onClick={() => decide(app.id, "reject")}>駁回</Button>
+                  </TableCell>
+                </TableRow>
+                {expanded && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="p-0">
+                      <ApplicationDetail auth={auth} applicationId={app.id} />
+                    </TableCell>
+                  </TableRow>
+                )}
+              </Fragment>
+            );
+          })}
         </TableBody>
       </Table>
     </div>
