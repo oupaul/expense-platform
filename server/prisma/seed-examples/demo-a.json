@@ -1,5 +1,5 @@
 {
-  "_comment": "對應 [已移除的網域] 現況的設定範例",
+  "_comment": "示範公司 A：無選配欄位、無多幣別、3 關簽核(部門主管/財務/總經理)",
   "company": {
     "name": "示範公司 A",
     "nameEn": "Demo Company A Ltd.",

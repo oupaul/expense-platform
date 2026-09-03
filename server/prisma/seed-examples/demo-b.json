@@ -1,5 +1,5 @@
 {
-  "_comment": "對應 [已移除的網域] 現況的設定範例，注意 optionalFields 全開、多了付款資訊",
+  "_comment": "示範公司 B：選配欄位全開(專案編號/發票日期/受款人/付款日)、多幣別、3 關簽核最後一關是執行長",
   "company": {
     "name": "示範公司 B",
     "nameEn": "Demo Company B Ltd.",

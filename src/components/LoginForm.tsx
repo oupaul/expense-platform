@@ -9,9 +9,9 @@ interface Props {
 }
 
 export function LoginForm({ onLogin }: Props) {
-  const [companySlug, setCompanySlug] = useState("demo-b");
-  const [email, setEmail] = useState("applicant@demo-b.test");
-  const [password, setPassword] = useState("REDACTED_DEMO_PASSWORD");
+  const [companySlug, setCompanySlug] = useState("demo-a");
+  const [email, setEmail] = useState("applicant@demo-a.test");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -34,7 +34,7 @@ export function LoginForm({ onLogin }: Props) {
         <h1 className="text-lg font-bold">費用申請系統登入</h1>
         <div>
           <Label>公司代號</Label>
-          <Input value={companySlug} onChange={(e) => setCompanySlug(e.target.value)} placeholder="例如 demo-b" />
+          <Input value={companySlug} onChange={(e) => setCompanySlug(e.target.value)} placeholder="例如 demo-a" />
         </div>
         <div>
           <Label>Email</Label>
@@ -49,7 +49,8 @@ export function LoginForm({ onLogin }: Props) {
           {submitting ? "登入中…" : "登入"}
         </Button>
         <p className="text-xs text-muted-foreground">
-          示範帳號：admin / applicant / dept_manager / finance / ceo(或 gm)@demo-b.test 或 @demo-a.test，密碼皆為 REDACTED_DEMO_PASSWORD
+          示範帳號：admin / applicant / dept_manager / finance / ceo(或 gm)@demo-a.test 或 @demo-b.test，
+          密碼是執行 `npm run seed` 當下 console 印出來的那組隨機密碼(每次跑都不一樣)。
         </p>
       </form>
     </div>

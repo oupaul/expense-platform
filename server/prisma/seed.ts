@@ -1,12 +1,16 @@
 import { readFileSync, readdirSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
+import { randomBytes } from "crypto";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/auth/password.js";
 
 const prisma = new PrismaClient();
 const seedDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "seed-examples");
-const DEMO_PASSWORD = "REDACTED_DEMO_PASSWORD";
+
+// 不要寫死示範密碼 —— 這份 repo 是公開的，寫死的密碼等於公開的後門。
+// 每次跑 seed 都隨機生成一組，只印在當次執行的 console 輸出裡。
+const DEMO_PASSWORD = randomBytes(9).toString("base64url");
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "後台管理員",
@@ -107,7 +111,7 @@ async function seedCompany(slug: string, data: SeedFile) {
     });
   }
 
-  console.log(`已建立公司設定：${slug}(${data.company.name})，示範帳號密碼皆為 "${DEMO_PASSWORD}"`);
+  console.log(`已建立公司設定：${slug}(${data.company.name})`);
 }
 
 async function main() {
@@ -117,6 +121,8 @@ async function main() {
     const data = JSON.parse(readFileSync(path.join(seedDir, file), "utf-8")) as SeedFile;
     await seedCompany(slug, data);
   }
+  console.log(`\n所有示範帳號(admin / applicant / 各簽核角色 @<slug>.test)這次的密碼都是：${DEMO_PASSWORD}`);
+  console.log("這組密碼只在這次執行印出來，沒有存在任何檔案裡，請自行記下來或直接重設。");
 }
 
 main()

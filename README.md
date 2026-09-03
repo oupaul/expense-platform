@@ -19,7 +19,7 @@ server/                       後端(Node.js + Express + Prisma)
   prisma/schema.prisma          資料庫 schema(PostgreSQL)
   prisma/migrations/            版本化的 migration，部署時用 `prisma migrate deploy` 套用
   prisma/seed.ts                種子腳本，讀 seed-examples/*.json 建立示範公司與帳號
-  prisma/seed-examples/         兩份範例設定(對應 demo-a / demo-b 現況)
+  prisma/seed-examples/         兩份範例設定(demo-a / demo-b，示範兩種不同的欄位/簽核組合)
   src/routes/                   各資源的 Express route(auth / companies / applications / users …)
   src/middleware/auth.ts        requireAuth / requireSameCompany / requireRole
   .env                          本機環境變數(不進 git，見下方「環境變數」)
@@ -73,8 +73,11 @@ npm run dev                     # 前端：http://localhost:8080，/api 會 prox
 ```
 
 種子帳號(見 `server/prisma/seed.ts`)：`admin@<slug>.test`、`applicant@<slug>.test`、以及每個簽核角色
-各一組帳號(`dept_manager@…`、`finance@…`、`ceo@…` 或 `gm@…`)，`<slug>` 是 `demo-a` 或 `demo-b`，密碼皆為
-`REDACTED_DEMO_PASSWORD`。
+各一組帳號(`dept_manager@…`、`finance@…`、`ceo@…` 或 `gm@…`)，`<slug>` 是 `demo-a` 或 `demo-b`。
+
+**密碼不是寫死的**：每次執行 `npm run seed` 都會隨機產生一組密碼，只印在當次的 console 輸出裡
+(格式類似「所有示範帳號…這次的密碼都是：xxxxxxxxxxxx」)，複製那組值來登入即可。這是刻意設計成這樣——
+這份 repo 是公開的，不應該有任何寫死、大家都知道的密碼可以登入示範帳號。
 
 ---
 
