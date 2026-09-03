@@ -1,8 +1,13 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { requireAuth, requireSameCompany } from "../middleware/auth.js";
 import { ALL_CURRENCIES } from "../constants.js";
+
+// mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
+// 自己的路徑字面量(例如 "/:id")推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
+type CompanyScoped = Request<{ companyId: string }>;
+type CompanyScopedWithId = Request<{ companyId: string; id: string }>;
 
 export const applicationsRouter = Router({ mergeParams: true });
 applicationsRouter.use(requireAuth, requireSameCompany);
@@ -29,7 +34,7 @@ const createSchema = z.object({
 });
 
 // POST /api/companies/:companyId/applications
-applicationsRouter.post("/", async (req, res) => {
+applicationsRouter.post("/", async (req: CompanyScoped, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -112,7 +117,7 @@ applicationsRouter.post("/", async (req, res) => {
 });
 
 // GET /api/companies/:companyId/applications?scope=mine|pending|all
-applicationsRouter.get("/", async (req, res) => {
+applicationsRouter.get("/", async (req: CompanyScoped, res) => {
   const scope = req.query.scope === "pending" || req.query.scope === "all" ? req.query.scope : "mine";
   const auth = req.auth!;
 
@@ -151,7 +156,7 @@ applicationsRouter.get("/", async (req, res) => {
 });
 
 // GET /api/companies/:companyId/applications/:id
-applicationsRouter.get("/:id", async (req, res) => {
+applicationsRouter.get("/:id", async (req: CompanyScopedWithId, res) => {
   const application = await prisma.expenseApplication.findFirst({
     where: { id: req.params.id, companyId: req.params.companyId },
     include: {
@@ -175,7 +180,7 @@ const decisionSchema = z.object({
 });
 
 // POST /api/companies/:companyId/applications/:id/decision
-applicationsRouter.post("/:id/decision", async (req, res) => {
+applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) => {
   const parsed = decisionSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

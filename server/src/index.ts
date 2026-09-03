@@ -1,7 +1,7 @@
 import "express-async-errors";
 import express from "express";
 import cors from "cors";
-import pinoHttp from "pino-http";
+import { pinoHttp } from "pino-http";
 import { prisma } from "./db.js";
 import { companiesRouter } from "./routes/companies.js";
 import { createOptionRouter } from "./routes/optionResource.js";

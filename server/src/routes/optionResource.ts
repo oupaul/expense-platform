@@ -1,10 +1,14 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { requireAuth, requireRole, requireSameCompany } from "../middleware/auth.js";
 
 // Department / ExpenseCategory / ExpenseNature 三張表結構完全相同(name + sortOrder + active，
 // 都掛在某個 companyId 下)，後台的新增/編輯/刪除/排序邏輯用同一份工廠函式產生，
 // 避免三份幾乎一樣的路由程式碼。
+
+// mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
+// 自己的路徑字面量推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
+type CompanyScoped = Request<{ companyId: string }>;
 
 const upsertSchema = z.object({
   name: z.string().min(1),
@@ -25,7 +29,7 @@ export function createOptionRouter(getDelegate: () => OptionDelegate) {
   router.use(requireAuth, requireSameCompany, requireRole("admin"));
 
   // GET /api/companies/:companyId/<resource>
-  router.get("/", async (req, res) => {
+  router.get("/", async (req: CompanyScoped, res) => {
     const items = await getDelegate().findMany({
       where: { companyId: req.params.companyId },
       orderBy: { sortOrder: "asc" },
@@ -34,7 +38,7 @@ export function createOptionRouter(getDelegate: () => OptionDelegate) {
   });
 
   // POST /api/companies/:companyId/<resource>
-  router.post("/", async (req, res) => {
+  router.post("/", async (req: CompanyScoped, res) => {
     const parsed = upsertSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });

@@ -1,7 +1,11 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { requireAuth, requireRole, requireSameCompany } from "../middleware/auth.js";
+
+// mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
+// 自己的路徑字面量推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
+type CompanyScoped = Request<{ companyId: string }>;
 
 export const approvalStagesRouter = Router({ mergeParams: true });
 // 簽核關卡設定也是後台管理專用，同樣要求 admin 角色。
@@ -13,7 +17,7 @@ const upsertSchema = z.object({
 });
 
 // GET /api/companies/:companyId/approval-stages
-approvalStagesRouter.get("/", async (req, res) => {
+approvalStagesRouter.get("/", async (req: CompanyScoped, res) => {
   const stages = await prisma.approvalStage.findMany({
     where: { companyId: req.params.companyId },
     orderBy: { stageOrder: "asc" },
@@ -23,7 +27,7 @@ approvalStagesRouter.get("/", async (req, res) => {
 
 // POST /api/companies/:companyId/approval-stages
 // 新關卡固定加在最後一關，要調順序用 PUT /reorder。
-approvalStagesRouter.post("/", async (req, res) => {
+approvalStagesRouter.post("/", async (req: CompanyScoped, res) => {
   const parsed = upsertSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

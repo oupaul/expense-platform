@@ -1,8 +1,12 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { hashPassword } from "../auth/password.js";
 import { requireAuth, requireRole, requireSameCompany } from "../middleware/auth.js";
+
+// mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
+// 自己的路徑字面量推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
+type CompanyScoped = Request<{ companyId: string }>;
 
 export const usersRouter = Router({ mergeParams: true });
 usersRouter.use(requireAuth, requireSameCompany, requireRole("admin"));
@@ -18,7 +22,7 @@ const userSelect = {
 } as const;
 
 // GET /api/companies/:companyId/users
-usersRouter.get("/", async (req, res) => {
+usersRouter.get("/", async (req: CompanyScoped, res) => {
   const users = await prisma.user.findMany({
     where: { companyId: req.params.companyId },
     select: userSelect,
@@ -36,7 +40,7 @@ const createSchema = z.object({
 });
 
 // POST /api/companies/:companyId/users
-usersRouter.post("/", async (req, res) => {
+usersRouter.post("/", async (req: CompanyScoped, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
