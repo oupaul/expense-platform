@@ -64,29 +64,38 @@ async function seedCompany(slug: string, data: SeedFile) {
     },
   });
 
-  // 種子資料重跑要冪等：先清掉舊的選項/關卡再重新建立
-  await prisma.department.deleteMany({ where: { companyId: company.id } });
-  await prisma.expenseCategory.deleteMany({ where: { companyId: company.id } });
-  await prisma.expenseNature.deleteMany({ where: { companyId: company.id } });
-  await prisma.approvalStage.deleteMany({ where: { companyId: company.id } });
-
-  await prisma.department.createMany({
-    data: data.departments.map((name, i) => ({ companyId: company.id, name, sortOrder: i })),
-  });
-  await prisma.expenseCategory.createMany({
-    data: data.expenseCategories.map((name, i) => ({ companyId: company.id, name, sortOrder: i })),
-  });
-  await prisma.expenseNature.createMany({
-    data: data.expenseNatures.map((name, i) => ({ companyId: company.id, name, sortOrder: i })),
-  });
-  await prisma.approvalStage.createMany({
-    data: data.approvalStages.map((s, i) => ({
-      companyId: company.id,
-      stageOrder: i,
-      roleKey: s.roleKey,
-      label: s.label,
-    })),
-  });
+  // 種子資料要能重跑且不能是破壞性的：一旦這家公司已經有真的申請單在用這些部門/類別，
+  // deleteMany 整批砍掉重建就會撞到外鍵擋下來（甚至更糟，如果 FK 允許串聯刪除，
+  // 會直接把已送出的申請單資料也一起弄丟）。改成 upsert，只新增缺的、更新既有的，
+  // 絕對不刪除任何一列。
+  for (const [i, name] of data.departments.entries()) {
+    await prisma.department.upsert({
+      where: { companyId_name: { companyId: company.id, name } },
+      update: { sortOrder: i },
+      create: { companyId: company.id, name, sortOrder: i },
+    });
+  }
+  for (const [i, name] of data.expenseCategories.entries()) {
+    await prisma.expenseCategory.upsert({
+      where: { companyId_name: { companyId: company.id, name } },
+      update: { sortOrder: i },
+      create: { companyId: company.id, name, sortOrder: i },
+    });
+  }
+  for (const [i, name] of data.expenseNatures.entries()) {
+    await prisma.expenseNature.upsert({
+      where: { companyId_name: { companyId: company.id, name } },
+      update: { sortOrder: i },
+      create: { companyId: company.id, name, sortOrder: i },
+    });
+  }
+  for (const [i, stage] of data.approvalStages.entries()) {
+    await prisma.approvalStage.upsert({
+      where: { companyId_stageOrder: { companyId: company.id, stageOrder: i } },
+      update: { roleKey: stage.roleKey, label: stage.label },
+      create: { companyId: company.id, stageOrder: i, roleKey: stage.roleKey, label: stage.label },
+    });
+  }
 
   const firstDepartment = await prisma.department.findFirst({
     where: { companyId: company.id },
