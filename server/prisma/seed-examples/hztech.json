@@ -1,0 +1,26 @@
+{
+  "_comment": "對應 [已移除的網域] 現況的設定範例，注意 optionalFields 全開、多了付款資訊",
+  "company": {
+    "name": "示範公司 B",
+    "nameEn": "Demo Company B Ltd.",
+    "primaryColor": "#3498db",
+    "headerBgColor": "#2c3e50",
+    "gradientFrom": "#667eea",
+    "gradientTo": "#764ba2",
+    "multiCurrencyEnabled": false,
+    "optionalFields": {
+      "projectCode": true,
+      "invoiceDate": true,
+      "payeeInfo": true,
+      "requestedPaymentDate": true
+    }
+  },
+  "departments": ["營運部", "技術部", "財務部"],
+  "expenseNatures": ["專案", "報銷", "預付"],
+  "expenseCategories": ["專案相關", "交通費", "餐飲費", "文具", "郵資", "其他"],
+  "approvalStages": [
+    { "roleKey": "dept_manager", "label": "部門主管" },
+    { "roleKey": "finance", "label": "財務審核" },
+    { "roleKey": "ceo", "label": "執行長核准" }
+  ]
+}

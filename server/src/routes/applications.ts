@@ -1,0 +1,224 @@
+import { Router } from "express";
+import { z } from "zod";
+import { prisma } from "../db.js";
+import { requireAuth, requireSameCompany } from "../middleware/auth.js";
+import { ALL_CURRENCIES } from "../constants.js";
+
+export const applicationsRouter = Router({ mergeParams: true });
+applicationsRouter.use(requireAuth, requireSameCompany);
+
+const itemSchema = z.object({
+  categoryId: z.string().min(1),
+  description: z.string().optional(),
+  date: z.coerce.date().optional(),
+  projectCode: z.string().optional(),
+  invoiceDate: z.coerce.date().optional(),
+  currency: z.enum(ALL_CURRENCIES).default("TWD"),
+  amount: z.number().positive(),
+});
+
+const createSchema = z.object({
+  departmentId: z.string().min(1),
+  expenseNatureId: z.string().min(1),
+  applicationDate: z.coerce.date(),
+  purpose: z.string().optional(),
+  payeeName: z.string().optional(),
+  payeeBankInfo: z.record(z.string()).optional(),
+  requestedPaymentDate: z.coerce.date().optional(),
+  items: z.array(itemSchema).min(1),
+});
+
+// POST /api/companies/:companyId/applications
+applicationsRouter.post("/", async (req, res) => {
+  const parsed = createSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const companyId = req.params.companyId;
+  const data = parsed.data;
+
+  // department / 費用性質 / 每個費用項目的類別都要屬於同一家公司，
+  // 否則有心人可以拿別家公司的 id 硬塞進來(id 是全域唯一的 cuid，DB 層的外鍵擋不住跨公司關聯)。
+  const [company, department, nature, categories, stages, exchangeRates] = await Promise.all([
+    prisma.company.findUnique({ where: { id: companyId } }),
+    prisma.department.findFirst({ where: { id: data.departmentId, companyId } }),
+    prisma.expenseNature.findFirst({ where: { id: data.expenseNatureId, companyId } }),
+    prisma.expenseCategory.findMany({
+      where: { id: { in: data.items.map((i) => i.categoryId) }, companyId },
+    }),
+    prisma.approvalStage.findMany({ where: { companyId }, orderBy: { stageOrder: "asc" } }),
+    prisma.exchangeRate.findMany({ where: { companyId } }),
+  ]);
+
+  if (!company) return res.status(404).json({ error: "找不到公司" });
+  if (!department) return res.status(400).json({ error: "部門不存在或不屬於此公司" });
+  if (!nature) return res.status(400).json({ error: "費用性質不存在或不屬於此公司" });
+  if (categories.length !== new Set(data.items.map((i) => i.categoryId)).size) {
+    return res.status(400).json({ error: "有費用項目類別不存在或不屬於此公司" });
+  }
+  if (stages.length === 0) {
+    return res.status(400).json({ error: "此公司尚未設定簽核關卡，無法送出申請" });
+  }
+  if (!company.multiCurrencyEnabled && data.items.some((i) => i.currency !== "TWD")) {
+    return res.status(400).json({ error: "此公司未開啟多幣別功能，費用項目只能使用 TWD" });
+  }
+
+  const rateByCurrency = new Map(exchangeRates.map((r) => [r.currency, Number(r.rateToTWD)]));
+  const itemsWithConversion = data.items.map((item) => {
+    if (item.currency === "TWD") return { ...item, amountInTWD: item.amount };
+    const rate = rateByCurrency.get(item.currency);
+    if (rate === undefined) return { ...item, amountInTWD: null };
+    return { ...item, amountInTWD: Math.round(item.amount * rate * 100) / 100 };
+  });
+  const missingRateFor = itemsWithConversion.find((i) => i.amountInTWD === null);
+  if (missingRateFor) {
+    return res.status(400).json({ error: `尚未設定 ${missingRateFor.currency} 的匯率，請聯絡管理員在後台設定後再送出` });
+  }
+
+  const totalAmountTWD = itemsWithConversion.reduce((sum, item) => sum + (item.amountInTWD as number), 0);
+
+  const application = await prisma.expenseApplication.create({
+    data: {
+      companyId,
+      applicantId: req.auth!.userId,
+      departmentId: data.departmentId,
+      expenseNatureId: data.expenseNatureId,
+      applicationDate: data.applicationDate,
+      purpose: data.purpose,
+      payeeName: data.payeeName,
+      payeeBankInfo: data.payeeBankInfo,
+      requestedPaymentDate: data.requestedPaymentDate,
+      totalAmountTWD,
+      items: {
+        create: itemsWithConversion.map((item) => ({
+          categoryId: item.categoryId,
+          description: item.description,
+          date: item.date,
+          projectCode: item.projectCode,
+          invoiceDate: item.invoiceDate,
+          currency: item.currency,
+          amount: item.amount,
+          amountInTWD: item.amountInTWD as number,
+        })),
+      },
+      approvalRecords: {
+        create: stages.map((stage) => ({ stageId: stage.id, status: "waiting" })),
+      },
+    },
+    include: { items: true, approvalRecords: true },
+  });
+
+  res.status(201).json(application);
+});
+
+// GET /api/companies/:companyId/applications?scope=mine|pending|all
+applicationsRouter.get("/", async (req, res) => {
+  const scope = req.query.scope === "pending" || req.query.scope === "all" ? req.query.scope : "mine";
+  const auth = req.auth!;
+
+  if (scope === "all" && auth.role !== "admin") {
+    return res.status(403).json({ error: "只有管理員能查看全部申請單" });
+  }
+
+  const where =
+    scope === "mine"
+      ? { companyId: req.params.companyId, applicantId: auth.userId }
+      : scope === "all"
+      ? { companyId: req.params.companyId }
+      : { companyId: req.params.companyId }; // pending 再用程式篩選當前關卡
+
+  const applications = await prisma.expenseApplication.findMany({
+    where,
+    include: {
+      applicant: { select: { name: true } },
+      department: { select: { name: true } },
+      approvalRecords: { include: { stage: true }, orderBy: { stage: { stageOrder: "asc" } } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (scope !== "pending") {
+    return res.json(applications);
+  }
+
+  // pending：只回傳「目前輪到我這個角色簽核」的申請單 —— 前面關卡都還沒過的不算輪到我。
+  const pending = applications.filter((app) => {
+    if (app.status !== "pending") return false;
+    const currentStage = app.approvalRecords.find((r) => r.status === "waiting");
+    return currentStage?.stage.roleKey === auth.role;
+  });
+  res.json(pending);
+});
+
+// GET /api/companies/:companyId/applications/:id
+applicationsRouter.get("/:id", async (req, res) => {
+  const application = await prisma.expenseApplication.findFirst({
+    where: { id: req.params.id, companyId: req.params.companyId },
+    include: {
+      applicant: { select: { name: true, email: true } },
+      department: { select: { name: true } },
+      expenseNature: { select: { name: true } },
+      items: { include: { category: { select: { name: true } } } },
+      approvalRecords: {
+        include: { stage: true, approver: { select: { name: true } } },
+        orderBy: { stage: { stageOrder: "asc" } },
+      },
+    },
+  });
+  if (!application) return res.status(404).json({ error: "找不到申請單" });
+  res.json(application);
+});
+
+const decisionSchema = z.object({
+  action: z.enum(["approve", "reject"]),
+  comment: z.string().optional(),
+});
+
+// POST /api/companies/:companyId/applications/:id/decision
+applicationsRouter.post("/:id/decision", async (req, res) => {
+  const parsed = decisionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const auth = req.auth!;
+
+  const application = await prisma.expenseApplication.findFirst({
+    where: { id: req.params.id, companyId: req.params.companyId },
+    include: { approvalRecords: { include: { stage: true }, orderBy: { stage: { stageOrder: "asc" } } } },
+  });
+  if (!application) return res.status(404).json({ error: "找不到申請單" });
+  if (application.status !== "pending") {
+    return res.status(409).json({ error: "此申請單已經處理完畢" });
+  }
+
+  const currentRecord = application.approvalRecords.find((r) => r.status === "waiting");
+  if (!currentRecord) {
+    return res.status(409).json({ error: "此申請單已經處理完畢" });
+  }
+  if (currentRecord.stage.roleKey !== auth.role) {
+    return res.status(403).json({ error: "還沒輪到你這個角色簽核" });
+  }
+
+  const { action, comment } = parsed.data;
+  const isLastStage = currentRecord.stage.stageOrder === application.approvalRecords.length - 1;
+
+  await prisma.$transaction([
+    prisma.approvalRecord.update({
+      where: { id: currentRecord.id },
+      data: {
+        status: action === "approve" ? "approved" : "rejected",
+        approverId: auth.userId,
+        comment,
+        signedAt: new Date(),
+      },
+    }),
+    prisma.expenseApplication.update({
+      where: { id: application.id },
+      data: {
+        status: action === "reject" ? "rejected" : isLastStage ? "approved" : "pending",
+      },
+    }),
+  ]);
+
+  res.status(204).end();
+});

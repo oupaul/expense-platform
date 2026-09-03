@@ -1,0 +1,26 @@
+{
+  "_comment": "對應 [已移除的網域] 現況的設定範例",
+  "company": {
+    "name": "示範公司 A",
+    "nameEn": "Demo Company A Ltd.",
+    "primaryColor": "#3498db",
+    "headerBgColor": "#2c3e50",
+    "gradientFrom": "#667eea",
+    "gradientTo": "#764ba2",
+    "multiCurrencyEnabled": false,
+    "optionalFields": {
+      "projectCode": false,
+      "invoiceDate": false,
+      "payeeInfo": false,
+      "requestedPaymentDate": false
+    }
+  },
+  "departments": ["管理部", "客戶服務部", "財務部"],
+  "expenseNatures": ["報支", "預支", "暫支"],
+  "expenseCategories": ["交通費", "餐飲費", "文具", "郵資", "其他"],
+  "approvalStages": [
+    { "roleKey": "dept_manager", "label": "部門主管" },
+    { "roleKey": "finance", "label": "財務審核" },
+    { "roleKey": "gm", "label": "總經理核准" }
+  ]
+}

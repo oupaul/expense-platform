@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── 租戶(公司) ─────────────────────────────────────
+// 品牌識別 + 表單結構開關都放在這裡，因為這些是「一家公司改一次、很少變動」的設定，
+// 不需要像部門/費用類別那樣做成獨立的可增刪列表。
+model Company {
+  id        String   @id @default(cuid())
+  slug      String   @unique // 網址/API 用的公司代號，例如 "demo-a"、"demo-b"
+  name      String
+  nameEn    String?
+  logoUrl   String?
+
+  // 品牌配色 —— 對應前端 CSS variable，預設沿用 demo-b 版型的顏色
+  primaryColor   String @default("#3498db")
+  headerBgColor  String @default("#2c3e50")
+  gradientFrom   String @default("#667eea")
+  gradientTo     String @default("#764ba2")
+
+  // 表單結構開關
+  multiCurrencyEnabled Boolean @default(false)
+  optionalFields       Json    @default("{\"projectCode\":false,\"invoiceDate\":false,\"payeeInfo\":false,\"requestedPaymentDate\":false}")
+
+  departments       Department[]
+  expenseCategories ExpenseCategory[]
+  expenseNatures    ExpenseNature[]
+  approvalStages    ApprovalStage[]
+  exchangeRates     ExchangeRate[]
+  users             User[]
+  applications      ExpenseApplication[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── 後台可維護的選項資料(部門/費用類別/費用性質) ──────────
+// 三者結構相同(名稱 + 排序 + 啟用狀態)，各自建表方便日後各自加專屬欄位(例如費用類別要加預算上限)。
+
+model Department {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  users        User[]
+  applications ExpenseApplication[]
+
+  @@unique([companyId, name])
+  @@index([companyId, active])
+}
+
+model ExpenseCategory {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  items ExpenseItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId, active])
+}
+
+model ExpenseNature {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  applications ExpenseApplication[]
+
+  @@unique([companyId, name])
+  @@index([companyId, active])
+}
+
+// ── 簽核關卡設定 ──────────────────────────────────
+// 用陣列式的表(而非寫死 4 關)，後台可增刪關卡、改標籤、調順序。
+model ApprovalStage {
+  id         String  @id @default(cuid())
+  companyId  String
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stageOrder Int // 0-based，決定簽核順序
+  roleKey    String // 對應 User.role，例如 dept_manager / finance / ceo
+  label      String // 顯示用職稱，例如「執行長核准」
+
+  records ApprovalRecord[]
+
+  @@unique([companyId, stageOrder])
+  @@index([companyId])
+}
+
+// ── 匯率設定(後台維護，供多幣別換算用) ──────────────
+// 只存「非台幣」幣別對台幣的匯率，TWD 本身固定視為 1，不用存。
+model ExchangeRate {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  currency    String // USD / JPY / CNY / EUR
+  rateToTWD   Decimal  @db.Decimal(12, 6)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, currency])
+}
+
+// ── 使用者 ────────────────────────────────────────
+model User {
+  id           String      @id @default(cuid())
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  email        String
+  passwordHash String
+  name         String
+  role         String // applicant / dept_manager / finance / ceo / admin
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  active       Boolean     @default(true)
+
+  applications   ExpenseApplication[] @relation("Applicant")
+  approvalRecords ApprovalRecord[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, email])
+  @@index([companyId, role])
+}
+
+// ── 申請單 ────────────────────────────────────────
+model ExpenseApplication {
+  id              String          @id @default(cuid())
+  companyId       String
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  applicantId     String
+  applicant       User            @relation("Applicant", fields: [applicantId], references: [id])
+  departmentId    String
+  department      Department      @relation(fields: [departmentId], references: [id])
+  expenseNatureId String
+  expenseNature   ExpenseNature   @relation(fields: [expenseNatureId], references: [id])
+
+  applicationDate DateTime
+  purpose         String?
+
+  // optionalFields 開啟時才會用到，未開啟則為 null
+  payeeName            String?
+  payeeBankInfo        Json?
+  requestedPaymentDate DateTime?
+
+  totalAmountTWD Decimal @default(0) @db.Decimal(12, 2)
+  status         String  @default("pending") // pending / approved / rejected
+
+  items           ExpenseItem[]
+  approvalRecords ApprovalRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, status])
+  @@index([applicantId])
+}
+
+model ExpenseItem {
+  id            String          @id @default(cuid())
+  applicationId String
+  application   ExpenseApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
+
+  description String?
+  date        DateTime?
+
+  // optionalFields.projectCode / invoiceDate 開啟時才會用到
+  projectCode String?
+  invoiceDate DateTime?
+
+  currency     String  @default("TWD") // multiCurrencyEnabled 時才會有 TWD 以外的值
+  amount       Decimal @db.Decimal(12, 2)
+  amountInTWD  Decimal @db.Decimal(12, 2)
+
+  @@index([applicationId])
+}
+
+// ── 簽核紀錄 ──────────────────────────────────────
+model ApprovalRecord {
+  id            String         @id @default(cuid())
+  applicationId String
+  application   ExpenseApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  stageId       String
+  stage         ApprovalStage  @relation(fields: [stageId], references: [id])
+  approverId    String?
+  approver      User?          @relation(fields: [approverId], references: [id])
+
+  status    String    @default("waiting") // waiting / approved / rejected
+  comment   String?
+  signedAt  DateTime?
+
+  @@unique([applicationId, stageId])
+  @@index([applicationId])
+}
