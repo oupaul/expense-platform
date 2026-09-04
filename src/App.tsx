@@ -31,7 +31,7 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
 
   return (
     <div>
-      <div className="fixed left-1/2 top-3 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/90 p-1 shadow-lg">
+      <div className="fixed left-1/2 top-3 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/90 p-1 shadow-lg print:hidden">
         {tabButton("form", "填寫申請單")}
         {tabButton("my-applications", "我的申請")}
         {tabButton("approvals", "待簽核")}

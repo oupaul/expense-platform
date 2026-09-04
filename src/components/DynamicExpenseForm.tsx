@@ -11,6 +11,7 @@ import { ApprovalChain } from "@/components/ApprovalChain";
 import { apiFetch, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import { ALL_CURRENCIES } from "@/lib/currencies";
+import { PrintableApplicationForm } from "@/components/print/PrintableApplicationForm";
 
 interface ExpenseRowState {
   categoryId: string;
@@ -55,9 +56,28 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
+  // 只算「有選費用項目」的列，跟送出/列印時的過濾條件（categoryId 必須有值）保持一致，
+  // 不然使用者會看到畫面上的合計金額跟實際送出/列印出來的金額對不起來。
+  const validRows = rows.filter((r) => r.categoryId && Number(r.amount) > 0);
   const total = multiCurrencyEnabled
-    ? rows.reduce((sum, row) => sum + (amountInTWD(row) ?? 0), 0)
-    : rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    ? validRows.reduce((sum, row) => sum + (amountInTWD(row) ?? 0), 0)
+    : validRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+
+  // 列印版面要顯示的是人看得懂的名稱(部門/費用項目)，不是內部的 id，
+  // 所以在這裡把目前表單狀態轉換成 PrintableApplicationForm 需要的形狀。
+  const printRows = rows
+    .filter((r) => r.categoryId && Number(r.amount) > 0)
+    .map((r) => ({
+      categoryName: expenseCategories.find((c) => c.id === r.categoryId)?.name ?? "-",
+      description: r.description,
+      projectCode: r.projectCode,
+      invoiceDate: r.invoiceDate,
+      currency: r.currency,
+      amount: r.amount,
+      amountInTWD: amountInTWD(r) === null ? null : Math.round(amountInTWD(r)! * 100) / 100,
+    }));
+  const departmentName = departments.find((d) => d.id === departmentId)?.name ?? "";
+  const expenseNatureName = expenseNatures.find((n) => n.id === expenseNatureId)?.name ?? "";
 
   const handleSubmit = async () => {
     setSubmitState({ status: "submitting" });
@@ -97,8 +117,26 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
 
   return (
     <BrandingProvider branding={branding}>
+      {/* 列印/PDF 版面：平常隱藏，只有瀏覽器進入列印模式才會顯示，跟下面的編輯畫面互斥 */}
+      <div className="hidden print:block">
+        <PrintableApplicationForm
+          branding={branding}
+          applicantName={auth.user.name}
+          departmentName={departmentName}
+          applicationDate={applicationDate}
+          expenseNatureName={expenseNatureName}
+          optionalFields={optionalFields}
+          multiCurrencyEnabled={multiCurrencyEnabled}
+          rows={printRows}
+          purpose={purpose}
+          payeeName={payeeName}
+          requestedPaymentDate={requestedPaymentDate}
+          total={total}
+          approvalStages={approvalStages}
+        />
+      </div>
       <div
-        className="min-h-screen p-5"
+        className="min-h-screen p-5 print:hidden"
         style={{ background: `linear-gradient(135deg, ${branding.gradientFrom} 0%, ${branding.gradientTo} 100%)` }}
       >
         <div className="mx-auto max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -269,6 +307,9 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
             <div className="flex items-center justify-end gap-3">
               {submitState.status === "success" && <p className="text-sm text-green-600">{submitState.message}</p>}
               {submitState.status === "error" && <p className="text-sm text-destructive">{submitState.message}</p>}
+              <Button variant="outline" onClick={() => window.print()}>
+                📄 列印 / 匯出 PDF
+              </Button>
               <Button
                 onClick={handleSubmit}
                 disabled={

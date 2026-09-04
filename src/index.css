@@ -141,3 +141,22 @@
 .expense-add-btn {
   @apply flex items-center text-sm text-expense-700 hover:text-expense-900 font-medium mt-2;
 }
+
+/* 列印/PDF 輸出：沿用參考版型(舊 hzt-expense 系統)的 A4 列印原則 —— 固定 A4 版面、
+   邊界跟 usePrintFit 換算單頁高度用的數字要一致，並強制列印出背景色(否則瀏覽器預設
+   會把 header/表頭的深色底拿掉，只剩白底黑字)。 */
+@media print {
+  @page {
+    size: A4;
+    margin: 15mm 10mm;
+  }
+
+  html, body {
+    height: auto;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
