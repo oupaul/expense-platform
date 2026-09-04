@@ -33,7 +33,6 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
   const [departmentId, setDepartmentId] = useState("");
   const [expenseNatureId, setExpenseNatureId] = useState("");
   const [applicationDate, setApplicationDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [purpose, setPurpose] = useState("");
   const [payeeName, setPayeeName] = useState("");
   const [requestedPaymentDate, setRequestedPaymentDate] = useState("");
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" | "success" | "error"; message?: string }>({
@@ -89,7 +88,6 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
           departmentId,
           expenseNatureId,
           applicationDate,
-          purpose: purpose || undefined,
           payeeName: optionalFields.payeeInfo ? payeeName || undefined : undefined,
           requestedPaymentDate: optionalFields.requestedPaymentDate ? requestedPaymentDate || undefined : undefined,
           items: rows
@@ -107,7 +105,6 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
       setSubmitState({ status: "success", message: "申請單已送出，等待簽核" });
       queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
       setRows([emptyRow()]);
-      setPurpose("");
       setPayeeName("");
       setRequestedPaymentDate("");
     } catch (err) {
@@ -128,7 +125,6 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
           optionalFields={optionalFields}
           multiCurrencyEnabled={multiCurrencyEnabled}
           rows={printRows}
-          purpose={purpose}
           payeeName={payeeName}
           requestedPaymentDate={requestedPaymentDate}
           total={total}
@@ -273,24 +269,18 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
               </Button>
             </div>
 
-            {/* 用途說明：後台管理資料以外，兩個既有客戶版本都有的欄位 */}
-            <div>
-              <Label>費用用途／事由說明</Label>
-              <Input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="請說明用途或支出原因" />
-            </div>
-
-            {/* 付款資訊：payeeInfo / requestedPaymentDate 兩個開關各自獨立控制 */}
+            {/* 付款資訊：payeeInfo / requestedPaymentDate 兩個開關各自獨立控制，文字比照參考版型 */}
             {(optionalFields.payeeInfo || optionalFields.requestedPaymentDate) && (
               <div className="grid grid-cols-2 gap-8">
                 {optionalFields.payeeInfo && (
                   <div>
                     <Label>受款人(第一次配合請提供銀行存摺)</Label>
-                    <Input value={payeeName} onChange={(e) => setPayeeName(e.target.value)} placeholder="受款人姓名 / 銀行帳號" />
+                    <Input value={payeeName} onChange={(e) => setPayeeName(e.target.value)} placeholder="請輸入受款人資訊" />
                   </div>
                 )}
                 {optionalFields.requestedPaymentDate && (
                   <div>
-                    <Label>需求付款日</Label>
+                    <Label>需求付款日(如無指定-請填依公司規定)</Label>
                     <Input type="date" value={requestedPaymentDate} onChange={(e) => setRequestedPaymentDate(e.target.value)} />
                   </div>
                 )}

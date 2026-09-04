@@ -49,8 +49,16 @@ companiesRouter.get("/:slug/config", async (req, res) => {
   });
 });
 
+const optionalFieldsSchema = z.object({
+  projectCode: z.boolean().optional(),
+  invoiceDate: z.boolean().optional(),
+  payeeInfo: z.boolean().optional(),
+  requestedPaymentDate: z.boolean().optional(),
+});
+
 const settingsSchema = z.object({
   multiCurrencyEnabled: z.boolean().optional(),
+  optionalFields: optionalFieldsSchema.optional(),
 });
 
 // PUT /api/companies/:companyId/settings  （用 companyId 而非 slug，跟其他後台管理路由一致）
@@ -64,10 +72,24 @@ companiesRouter.put(
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });
     }
+
+    const existing = await prisma.company.findUnique({ where: { id: req.params.companyId } });
+    if (!existing) return res.status(404).json({ error: "找不到公司" });
+
+    // optionalFields 存在 Company 上的單一 JSON 欄位裡，這裡只更新有帶到的欄位，
+    // 沒帶到的維持原樣，不能直接整包覆蓋掉沒動到的開關。
+    const { optionalFields, ...rest } = parsed.data;
+    const mergedOptionalFields = optionalFields
+      ? { ...(existing.optionalFields as Record<string, boolean>), ...optionalFields }
+      : undefined;
+
     const company = await prisma.company.update({
       where: { id: req.params.companyId },
-      data: parsed.data,
+      data: {
+        ...rest,
+        ...(mergedOptionalFields ? { optionalFields: mergedOptionalFields } : {}),
+      },
     });
-    res.json({ multiCurrencyEnabled: company.multiCurrencyEnabled });
+    res.json({ multiCurrencyEnabled: company.multiCurrencyEnabled, optionalFields: company.optionalFields });
   }
 );

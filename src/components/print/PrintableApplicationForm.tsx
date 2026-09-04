@@ -21,7 +21,6 @@ interface Props {
   optionalFields: OptionalFields;
   multiCurrencyEnabled: boolean;
   rows: PrintableRow[];
-  purpose: string;
   payeeName?: string;
   requestedPaymentDate?: string;
   total: number;
@@ -51,7 +50,6 @@ export function PrintableApplicationForm(props: Props) {
     optionalFields,
     multiCurrencyEnabled,
     rows,
-    purpose,
     payeeName,
     requestedPaymentDate,
     total,
@@ -116,9 +114,6 @@ export function PrintableApplicationForm(props: Props) {
 
   const renderTail = () => (
     <div className="mt-4 space-y-4">
-      {purpose && (
-        <div className="text-sm"><span className="font-medium">費用用途／事由說明：</span>{purpose}</div>
-      )}
       <div className="rounded bg-gray-50 p-3 text-right text-base font-bold" style={{ color: branding.primaryColor }}>
         合計金額：{total.toFixed(0)} TWD
       </div>
