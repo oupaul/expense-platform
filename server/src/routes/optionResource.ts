@@ -2,19 +2,14 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { requireAuth, requireRole, requireSameCompany } from "../middleware/auth.js";
 
-// Department / ExpenseCategory / ExpenseNature 三張表結構完全相同(name + sortOrder + active，
+// Department / ExpenseCategory / ExpenseNature 三張表結構幾乎相同(name + sortOrder + active，
 // 都掛在某個 companyId 下)，後台的新增/編輯/刪除/排序邏輯用同一份工廠函式產生，
-// 避免三份幾乎一樣的路由程式碼。
+// 避免三份幾乎一樣的路由程式碼。ExpenseCategory 多一個 requiresProjectCode 欄位，
+// 用 extraFields 讓呼叫端自行擴充 schema，不用整份路由重寫一次。
 
 // mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
 // 自己的路徑字面量推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
 type CompanyScoped = Request<{ companyId: string }>;
-
-const upsertSchema = z.object({
-  name: z.string().min(1),
-  sortOrder: z.number().int().optional(),
-  active: z.boolean().optional(),
-});
 
 interface OptionDelegate {
   findMany(args: any): Promise<any>;
@@ -23,7 +18,17 @@ interface OptionDelegate {
   delete(args: any): Promise<any>;
 }
 
-export function createOptionRouter(getDelegate: () => OptionDelegate) {
+export function createOptionRouter(
+  getDelegate: () => OptionDelegate,
+  extraFields: Record<string, z.ZodTypeAny> = {}
+) {
+  const upsertSchema = z.object({
+    name: z.string().min(1),
+    sortOrder: z.number().int().optional(),
+    active: z.boolean().optional(),
+    ...extraFields,
+  });
+
   const router = Router({ mergeParams: true });
   // 這整組路由只給後台管理用，一律要求登入 + admin 角色 + 只能動自己公司的資料。
   router.use(requireAuth, requireSameCompany, requireRole("admin"));
@@ -47,6 +52,22 @@ export function createOptionRouter(getDelegate: () => OptionDelegate) {
       data: { ...parsed.data, companyId: req.params.companyId },
     });
     res.status(201).json(item);
+  });
+
+  // PUT /api/companies/:companyId/<resource>/reorder  { orderedIds: string[] }
+  // 注意：這條路由要放在 "/:id" 之前，否則 "reorder" 會被 Express 當成 :id 吃掉。
+  // 這三張表的 sortOrder 沒有唯一約束(不像 ApprovalStage)，直接照順序寫入即可，
+  // 不需要先挪到暫存區間再改。
+  router.put("/reorder", async (req: CompanyScoped, res) => {
+    const parsed = z.object({ orderedIds: z.array(z.string()) }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const delegate = getDelegate();
+    await Promise.all(
+      parsed.data.orderedIds.map((id, index) => delegate.update({ where: { id }, data: { sortOrder: index } }))
+    );
+    res.status(204).end();
   });
 
   // PUT /api/companies/:companyId/<resource>/:id

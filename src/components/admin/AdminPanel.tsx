@@ -25,7 +25,7 @@ export function AdminPanel({ auth }: { auth: AuthState }) {
         <OptionManager auth={auth} resourcePath="departments" title="部門" />
       </div>
       <div className="rounded-lg border bg-white p-6">
-        <OptionManager auth={auth} resourcePath="expense-categories" title="費用項目" />
+        <OptionManager auth={auth} resourcePath="expense-categories" title="費用項目" showRequiresProjectCode />
       </div>
       <div className="rounded-lg border bg-white p-6">
         <OptionManager auth={auth} resourcePath="expense-natures" title="費用性質" />

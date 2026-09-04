@@ -1,6 +1,7 @@
 import "express-async-errors";
 import express from "express";
 import cors from "cors";
+import { z } from "zod";
 import { pinoHttp } from "pino-http";
 import { prisma } from "./db.js";
 import { companiesRouter } from "./routes/companies.js";
@@ -20,7 +21,10 @@ app.use(pinoHttp());
 app.use("/api/auth", authRouter);
 app.use("/api/companies", companiesRouter);
 app.use("/api/companies/:companyId/departments", createOptionRouter(() => prisma.department));
-app.use("/api/companies/:companyId/expense-categories", createOptionRouter(() => prisma.expenseCategory));
+app.use(
+  "/api/companies/:companyId/expense-categories",
+  createOptionRouter(() => prisma.expenseCategory, { requiresProjectCode: z.boolean().optional() })
+);
 app.use("/api/companies/:companyId/expense-natures", createOptionRouter(() => prisma.expenseNature));
 app.use("/api/companies/:companyId/approval-stages", approvalStagesRouter);
 app.use("/api/companies/:companyId/applications", applicationsRouter);

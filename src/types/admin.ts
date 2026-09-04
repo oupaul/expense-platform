@@ -4,6 +4,7 @@ export interface OptionItem {
   name: string;
   sortOrder: number;
   active: boolean;
+  requiresProjectCode?: boolean;
 }
 
 export interface ApprovalStageItem {

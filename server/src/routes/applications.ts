@@ -16,7 +16,7 @@ const itemSchema = z.object({
   categoryId: z.string().min(1),
   description: z.string().optional(),
   date: z.coerce.date().optional(),
-  projectCode: z.string().optional(),
+  projectCode: z.string().max(10, "專案編號最多 10 碼").optional(),
   invoiceDate: z.coerce.date().optional(),
   currency: z.enum(ALL_CURRENCIES).default("TWD"),
   amount: z.number().positive(),
@@ -66,6 +66,17 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
   }
   if (!company.multiCurrencyEnabled && data.items.some((i) => i.currency !== "TWD")) {
     return res.status(400).json({ error: "此公司未開啟多幣別功能，費用項目只能使用 TWD" });
+  }
+
+  // 選到「需要專案編號」的類別時，該列的專案編號不能空著(長度上限已經在 itemSchema 擋過)。
+  const categoryById = new Map(categories.map((c) => [c.id, c]));
+  const missingProjectCode = data.items.find((item) => {
+    const category = categoryById.get(item.categoryId);
+    return category?.requiresProjectCode && !item.projectCode?.trim();
+  });
+  if (missingProjectCode) {
+    const categoryName = categoryById.get(missingProjectCode.categoryId)?.name;
+    return res.status(400).json({ error: `費用項目「${categoryName}」需要填寫專案編號` });
   }
 
   const rateByCurrency = new Map(exchangeRates.map((r) => [r.currency, Number(r.rateToTWD)]));

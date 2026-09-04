@@ -35,6 +35,10 @@ export interface ExchangeRateConfig {
   rateToTWD: string;
 }
 
+export interface ExpenseCategoryOption extends SelectOption {
+  requiresProjectCode: boolean;
+}
+
 export interface CompanyFormConfig {
   companyId: string;
   branding: Branding;
@@ -42,7 +46,7 @@ export interface CompanyFormConfig {
   optionalFields: OptionalFields;
   departments: SelectOption[];
   expenseNatures: SelectOption[];
-  expenseCategories: SelectOption[];
+  expenseCategories: ExpenseCategoryOption[];
   approvalStages: ApprovalStageConfig[];
   exchangeRates: ExchangeRateConfig[];
 }

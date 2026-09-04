@@ -55,6 +55,19 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
+  // 選到「需要專案編號」的類別(例如「專案相關」)時，這一列的專案編號要變必填、最多 10 碼。
+  // 這個規則掛在後台可設定的 ExpenseCategory.requiresProjectCode 上，不是寫死某個類別名稱。
+  const isProjectCodeRequired = (row: ExpenseRowState) =>
+    expenseCategories.find((c) => c.id === row.categoryId)?.requiresProjectCode ?? false;
+  const isProjectCodeInvalid = (row: ExpenseRowState) => {
+    const code = (row.projectCode ?? "").trim();
+    if (isProjectCodeRequired(row)) return code.length === 0 || code.length > 10;
+    return code.length > 10;
+  };
+  // 專案編號欄位本身要不要顯示：公司整體開啟 optionalFields.projectCode，或是任何一個類別
+  // 設定了必填，都要顯示——不然選到必填類別時使用者根本看不到欄位可以填。
+  const showProjectCodeColumn = optionalFields.projectCode || expenseCategories.some((c) => c.requiresProjectCode);
+
   // 只算「有選費用項目」的列，跟送出/列印時的過濾條件（categoryId 必須有值）保持一致，
   // 不然使用者會看到畫面上的合計金額跟實際送出/列印出來的金額對不起來。
   const validRows = rows.filter((r) => r.categoryId && Number(r.amount) > 0);
@@ -79,6 +92,10 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
   const expenseNatureName = expenseNatures.find((n) => n.id === expenseNatureId)?.name ?? "";
 
   const handleSubmit = async () => {
+    if (validRows.some(isProjectCodeInvalid)) {
+      setSubmitState({ status: "error", message: "有費用明細的專案編號未填寫或超過 10 碼，請檢查標紅的欄位" });
+      return;
+    }
     setSubmitState({ status: "submitting" });
     try {
       await apiFetch(`/companies/${auth.user.companyId}/applications`, {
@@ -122,7 +139,7 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
           departmentName={departmentName}
           applicationDate={applicationDate}
           expenseNatureName={expenseNatureName}
-          optionalFields={optionalFields}
+          optionalFields={{ ...optionalFields, projectCode: showProjectCodeColumn }}
           multiCurrencyEnabled={multiCurrencyEnabled}
           rows={printRows}
           payeeName={payeeName}
@@ -192,7 +209,7 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>費用項目</TableHead>
-                    {optionalFields.projectCode && <TableHead>專案編號</TableHead>}
+                    {showProjectCodeColumn && <TableHead>專案編號</TableHead>}
                     <TableHead>說明</TableHead>
                     {optionalFields.invoiceDate && <TableHead>發票日期(個人代墊費用可不填)</TableHead>}
                     {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
@@ -214,9 +231,15 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
                           </SelectContent>
                         </Select>
                       </TableCell>
-                      {optionalFields.projectCode && (
+                      {showProjectCodeColumn && (
                         <TableCell>
-                          <Input value={row.projectCode ?? ""} onChange={(e) => updateRow(i, { projectCode: e.target.value })} placeholder="專案編號" />
+                          <Input
+                            value={row.projectCode ?? ""}
+                            onChange={(e) => updateRow(i, { projectCode: e.target.value })}
+                            placeholder={isProjectCodeRequired(row) ? "專案編號(需10碼)" : "專案編號"}
+                            maxLength={10}
+                            className={isProjectCodeInvalid(row) ? "border-destructive" : undefined}
+                          />
                         </TableCell>
                       )}
                       <TableCell>
@@ -307,7 +330,8 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
                   !departmentId ||
                   !expenseNatureId ||
                   total <= 0 ||
-                  (multiCurrencyEnabled && rows.some((r) => r.categoryId && Number(r.amount) > 0 && amountInTWD(r) === null))
+                  (multiCurrencyEnabled && rows.some((r) => r.categoryId && Number(r.amount) > 0 && amountInTWD(r) === null)) ||
+                  validRows.some(isProjectCodeInvalid)
                 }
               >
                 {submitState.status === "submitting" ? "送出中…" : "送出申請"}

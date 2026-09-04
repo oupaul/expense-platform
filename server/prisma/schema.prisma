@@ -64,6 +64,8 @@ model ExpenseCategory {
   name      String
   sortOrder Int     @default(0)
   active    Boolean @default(true)
+  // 選到這個類別時，費用明細列的專案編號要變必填(且最多 10 碼)，例如「專案相關」。
+  requiresProjectCode Boolean @default(false)
 
   items ExpenseItem[]
 

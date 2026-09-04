@@ -11,11 +11,13 @@ interface Props {
   auth: AuthState;
   resourcePath: "departments" | "expense-categories" | "expense-natures";
   title: string;
+  // 只有「費用項目」需要這個開關：選到這個類別時，費用明細列的專案編號要變必填。
+  showRequiresProjectCode?: boolean;
 }
 
 // Department / ExpenseCategory / ExpenseNature 後台管理邏輯完全一樣，
 // 用同一個元件依 resourcePath 打對應的 API，對應後端 optionResource.ts 的工廠設計。
-export function OptionManager({ auth, resourcePath, title }: Props) {
+export function OptionManager({ auth, resourcePath, title, showRequiresProjectCode }: Props) {
   const queryClient = useQueryClient();
   const queryKey = ["admin", resourcePath, auth.user.companyId];
   const [newName, setNewName] = useState("");
@@ -28,6 +30,7 @@ export function OptionManager({ auth, resourcePath, title }: Props) {
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey });
+  const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : "操作失敗");
 
   const createMutation = useMutation({
     mutationFn: (name: string) => apiFetch(basePath, { method: "POST", token: auth.token, body: { name } }),
@@ -35,14 +38,14 @@ export function OptionManager({ auth, resourcePath, title }: Props) {
       setNewName("");
       invalidate();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "新增失敗"),
+    onError,
   });
 
   const renameMutation = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) =>
       apiFetch(`${basePath}/${id}`, { method: "PUT", token: auth.token, body: { name } }),
     onSuccess: invalidate,
-    onError: (err) => setError(err instanceof ApiError ? err.message : "更新失敗"),
+    onError,
   });
 
   const toggleActiveMutation = useMutation({
@@ -51,11 +54,36 @@ export function OptionManager({ auth, resourcePath, title }: Props) {
         ? apiFetch(`${basePath}/${id}`, { method: "DELETE", token: auth.token })
         : apiFetch(`${basePath}/${id}`, { method: "PUT", token: auth.token, body: { active: true } }),
     onSuccess: invalidate,
-    onError: (err) => setError(err instanceof ApiError ? err.message : "更新失敗"),
+    onError,
   });
+
+  const requiresProjectCodeMutation = useMutation({
+    mutationFn: ({ id, requiresProjectCode }: { id: string; requiresProjectCode: boolean }) =>
+      apiFetch(`${basePath}/${id}`, { method: "PUT", token: auth.token, body: { requiresProjectCode } }),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds: string[]) =>
+      apiFetch(`${basePath}/reorder`, { method: "PUT", token: auth.token, body: { orderedIds } }),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const move = (index: number, direction: -1 | 1) => {
+    if (!data) return;
+    const target = index + direction;
+    if (target < 0 || target >= data.length) return;
+    const ids = data.map((item) => item.id);
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    reorderMutation.mutate(ids);
+  };
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground">載入中…</div>;
   if (isError || !data) return <div className="p-4 text-sm text-destructive">載入失敗</div>;
+
+  const columnCount = showRequiresProjectCode ? 5 : 4;
 
   return (
     <div className="space-y-3">
@@ -64,7 +92,9 @@ export function OptionManager({ auth, resourcePath, title }: Props) {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead>順序</TableHead>
             <TableHead>名稱</TableHead>
+            {showRequiresProjectCode && <TableHead>需要專案編號</TableHead>}
             <TableHead>狀態</TableHead>
             <TableHead />
           </TableRow>
@@ -72,13 +102,17 @@ export function OptionManager({ auth, resourcePath, title }: Props) {
         <TableBody>
           {data.length === 0 && (
             <TableRow>
-              <TableCell colSpan={3} className="text-center text-muted-foreground">
+              <TableCell colSpan={columnCount} className="text-center text-muted-foreground">
                 尚未設定任何項目
               </TableCell>
             </TableRow>
           )}
-          {data.map((item) => (
+          {data.map((item, i) => (
             <TableRow key={item.id}>
+              <TableCell className="space-x-1">
+                <Button size="sm" variant="outline" disabled={i === 0} onClick={() => move(i, -1)}>↑</Button>
+                <Button size="sm" variant="outline" disabled={i === data.length - 1} onClick={() => move(i, 1)}>↓</Button>
+              </TableCell>
               <TableCell>
                 <Input
                   defaultValue={item.name}
@@ -88,6 +122,17 @@ export function OptionManager({ auth, resourcePath, title }: Props) {
                   }}
                 />
               </TableCell>
+              {showRequiresProjectCode && (
+                <TableCell>
+                  <input
+                    type="checkbox"
+                    checked={item.requiresProjectCode ?? false}
+                    onChange={(e) =>
+                      requiresProjectCodeMutation.mutate({ id: item.id, requiresProjectCode: e.target.checked })
+                    }
+                  />
+                </TableCell>
+              )}
               <TableCell>
                 <span className={item.active ? "text-green-600" : "text-muted-foreground"}>
                   {item.active ? "啟用中" : "已停用"}

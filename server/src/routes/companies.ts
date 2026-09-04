@@ -38,7 +38,11 @@ companiesRouter.get("/:slug/config", async (req, res) => {
     optionalFields: company.optionalFields,
     departments: company.departments.map((d) => ({ id: d.id, name: d.name })),
     expenseNatures: company.expenseNatures.map((n) => ({ id: n.id, name: n.name })),
-    expenseCategories: company.expenseCategories.map((c) => ({ id: c.id, name: c.name })),
+    expenseCategories: company.expenseCategories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      requiresProjectCode: c.requiresProjectCode,
+    })),
     approvalStages: company.approvalStages.map((s) => ({
       id: s.id,
       stageOrder: s.stageOrder,
