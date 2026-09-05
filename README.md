@@ -228,24 +228,26 @@ sudo ufw status
 
 ```bash
 cd /srv/apps/expense-platform
-git pull
-
-# 依賴有變動才需要重跑
-npm ci --ignore-scripts
-npm --prefix server ci --ignore-scripts
-
-# 套用新的 migration(沒有新 migration 也可以安全重跑，不會有動作)
-npm --prefix server run prisma:generate
-cd server && npx prisma migrate deploy && cd ..
-
-# 重新建置
-npm --prefix server run build
-npm run build
-
-# 重啟後端；前端是靜態檔，nginx 會直接吃新的 dist/，不用重啟 nginx
-sudo systemctl restart expense-platform-api
-sudo systemctl status expense-platform-api
+bash server/scripts/update.sh
 ```
+
+[`server/scripts/update.sh`](server/scripts/update.sh) 會依序做完：更新前備份一次、
+`git pull`、前後端 `npm ci`、`prisma generate` + `migrate deploy`、前後端 `build`、
+重啟 `expense-platform-api`，最後確認服務真的正常啟動。這支腳本是把過去部署時
+反覆手貼、也反覆漏步驟(尤其是漏掉 `prisma:generate`)的那串指令收斂成一個檔案，
+每次更新只要跑這一行。
+
+幾個行為說明：
+- 如果偵測到主機上有還沒 commit 的本機修改(常見情況是 `package.json` 之類的檔案不知道
+  被什麼動過)，腳本會直接中止、印出 `git status` 給你看，**不會**自動幫你捨棄或 stash——
+  那可能是有意義的修改，要不要丟由你自己確認後手動處理(`git restore` 或 `git stash`)，
+  確認乾淨後再重跑一次。
+- 如果 `git pull` 下來發現已經是最新版本，會直接結束，不會做多餘的 build/restart。
+- 更新前預設會先跑一次 [`backup.sh`](server/scripts/backup.sh)，這樣萬一新版本的
+  migration 有問題，手邊隨時有一份「更新前」的還原點；不想每次更新都多等這幾秒，
+  可以用 `SKIP_PRE_UPDATE_BACKUP=1 bash server/scripts/update.sh` 跳過。
+- 最後會確認 `expense-platform-api` 真的是 `active (running)`，不是只看指令有沒有噴錯——
+  如果服務沒有正常啟動，腳本會用非 0 狀態碼結束，並提示去看 `journalctl` 的錯誤訊息。
 
 **注意**：`prisma migrate deploy` 只會套用 repo 裡 `server/prisma/migrations/` 已經存在的 migration 檔。
 如果你在本機用 `prisma migrate dev` 產生了新的 migration，記得連同 `migrations/` 目錄一起 commit 進 git，
