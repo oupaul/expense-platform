@@ -54,9 +54,13 @@ export function SignaturePad({ value, onChange, label }: Props) {
     setHasDrawn(true);
   };
 
+  // 放開手指/滑鼠只代表這一筆畫結束，簽名通常要畫很多筆(不同筆畫、簽好幾個字)，
+  // 不能一放開就當作簽名完成送出——要等使用者確認畫完、按下「完成簽名」才真的定案。
   const finishStroke = () => {
-    if (!drawingRef.current) return;
     drawingRef.current = false;
+  };
+
+  const confirmSignature = () => {
     const canvas = canvasRef.current;
     if (canvas) onChange(canvas.toDataURL("image/png"));
   };
@@ -136,11 +140,18 @@ export function SignaturePad({ value, onChange, label }: Props) {
             onPointerUp={finishStroke}
             onPointerLeave={finishStroke}
           />
-          <p className="text-xs text-muted-foreground">滑鼠、觸控板拖曳，或手機/平板直接用手指簽名。</p>
+          <p className="text-xs text-muted-foreground">
+            滑鼠、觸控板拖曳，或手機/平板直接用手指簽名，可以分好幾筆畫，簽好再按「完成簽名」。
+          </p>
           {hasDrawn && (
-            <Button type="button" size="sm" variant="outline" onClick={clearCanvas}>
-              清除重簽
-            </Button>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" onClick={confirmSignature}>
+                完成簽名
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={clearCanvas}>
+                清除重簽
+              </Button>
+            </div>
           )}
         </div>
       ) : (
