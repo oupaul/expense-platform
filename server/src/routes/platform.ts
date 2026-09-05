@@ -163,3 +163,48 @@ platformRouter.post("/admins", async (req, res) => {
   });
   res.status(201).json({ id: admin.id, name: admin.name, email: admin.email, active: admin.active, createdAt: admin.createdAt });
 });
+
+const updatePlatformAdminSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  active: z.boolean().optional(),
+});
+
+// PUT /api/platform/admins/:id
+platformRouter.put("/admins/:id", async (req, res) => {
+  const parsed = updatePlatformAdminSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  // 不能停用自己：跟租戶 users.ts 的 requireAuth 帳號同一個道理，
+  // 不然可能不小心把唯一一個能登入的平台管理者帳號鎖死。
+  if (req.params.id === req.auth!.userId && parsed.data.active === false) {
+    return res.status(400).json({ error: "不能停用自己的帳號" });
+  }
+  const existing = await prisma.platformAdmin.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: "找不到這個平台管理者" });
+
+  if (parsed.data.email && parsed.data.email !== existing.email) {
+    const emailTaken = await prisma.platformAdmin.findUnique({ where: { email: parsed.data.email } });
+    if (emailTaken) return res.status(409).json({ error: "這個 email 已經是平台管理者" });
+  }
+
+  const admin = await prisma.platformAdmin.update({ where: { id: req.params.id }, data: parsed.data });
+  res.json({ id: admin.id, name: admin.name, email: admin.email, active: admin.active, createdAt: admin.createdAt });
+});
+
+const resetPlatformAdminPasswordSchema = z.object({ newPassword: z.string().min(8, "密碼至少需要 8 個字元") });
+
+// POST /api/platform/admins/:id/reset-password
+platformRouter.post("/admins/:id/reset-password", async (req, res) => {
+  const parsed = resetPlatformAdminPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const admin = await prisma.platformAdmin.findUnique({ where: { id: req.params.id } });
+  if (!admin) return res.status(404).json({ error: "找不到這個平台管理者" });
+
+  const passwordHash = await hashPassword(parsed.data.newPassword);
+  await prisma.platformAdmin.update({ where: { id: admin.id }, data: { passwordHash } });
+  res.status(204).end();
+});

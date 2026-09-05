@@ -49,7 +49,7 @@ export function PlatformApp() {
         </Button>
       </div>
       {tab === "companies" && <PlatformDashboard token={auth.token} />}
-      {tab === "admins" && <PlatformAdminManager token={auth.token} />}
+      {tab === "admins" && <PlatformAdminManager token={auth.token} currentAdminId={auth.admin.id} />}
       {tab === "password" && (
         <div className="p-8">
           <ChangePasswordForm token={auth.token} path="/platform-auth/change-password" />
