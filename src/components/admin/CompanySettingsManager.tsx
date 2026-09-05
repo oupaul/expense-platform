@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { CompanyFormConfig, OptionalFields } from "@/types/company-config";
@@ -29,6 +31,13 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
     onError,
   });
 
+  const brandingMutation = useMutation({
+    mutationFn: (patch: { name?: string; nameEn?: string; logoUrl?: string }) =>
+      apiFetch(`/companies/${auth.user.companyId}/settings`, { method: "PUT", token: auth.token, body: patch }),
+    onSuccess: invalidate,
+    onError,
+  });
+
   const optionalFieldMutation = useMutation({
     mutationFn: (patch: Partial<OptionalFields>) =>
       apiFetch(`/companies/${auth.user.companyId}/settings`, {
@@ -44,6 +53,40 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
     <div className="space-y-3">
       <h3 className="font-semibold">公司設定</h3>
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-3 border-b pb-3">
+        <div>
+          <Label>公司名稱(登入後瀏覽器分頁標題也會用這個)</Label>
+          <Input
+            defaultValue={config.branding.name}
+            onBlur={(e) => {
+              const value = e.target.value.trim();
+              if (value && value !== config.branding.name) brandingMutation.mutate({ name: value });
+            }}
+          />
+        </div>
+        <div>
+          <Label>英文名稱(選填)</Label>
+          <Input
+            defaultValue={config.branding.nameEn ?? ""}
+            onBlur={(e) => {
+              const value = e.target.value.trim();
+              if (value !== (config.branding.nameEn ?? "")) brandingMutation.mutate({ nameEn: value });
+            }}
+          />
+        </div>
+        <div className="col-span-2">
+          <Label>瀏覽器分頁圖示網址(favicon，選填，留空還原成預設圖示)</Label>
+          <Input
+            defaultValue={config.branding.logoUrl ?? ""}
+            placeholder="https://example.com/favicon.png"
+            onBlur={(e) => {
+              const value = e.target.value.trim();
+              if (value !== (config.branding.logoUrl ?? "")) brandingMutation.mutate({ logoUrl: value });
+            }}
+          />
+        </div>
+      </div>
 
       <label className="flex items-center gap-2 text-sm">
         <input

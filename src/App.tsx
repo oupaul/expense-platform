@@ -7,8 +7,10 @@ import { AdminPanel } from "@/components/admin/AdminPanel";
 import { LoginForm } from "@/components/LoginForm";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import { PlatformApp } from "@/components/platform/PlatformApp";
+import { BrandingProvider } from "@/components/BrandingProvider";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 import type { AuthState } from "@/types/auth";
 
 const queryClient = new QueryClient();
@@ -21,6 +23,9 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
   // 讓 DynamicExpenseForm 用既有內容預填、走 resubmit 而不是建立新的一張。
   const [editApplicationId, setEditApplicationId] = useState<string | null>(null);
   const isAdmin = auth.user.role === "admin";
+  // 品牌設定(分頁標題/圖示/顏色)要套用在整個已登入畫面，不能只放在某一個分頁裡面——
+  // 不然使用者切到「後台管理」改了公司名稱/圖示，要跳回「填寫申請單」才會看到套用。
+  const { data: config } = useCompanyConfig(auth.user.companySlug);
 
   const tabButton = (value: Tab, label: string) => (
     <button
@@ -33,7 +38,7 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
     </button>
   );
 
-  return (
+  const content = (
     <div>
       {/* sticky 而非 fixed：佔用實際版面高度、把下面內容往下推，
           不會疊在公司名稱上面(手機窄螢幕尤其明顯)。flex-wrap 讓按鈕在窄螢幕自動換行。 */}
@@ -91,6 +96,8 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
       )}
     </div>
   );
+
+  return config ? <BrandingProvider branding={config.branding}>{content}</BrandingProvider> : content;
 }
 
 function App() {

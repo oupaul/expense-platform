@@ -63,6 +63,10 @@ const optionalFieldsSchema = z.object({
 const settingsSchema = z.object({
   multiCurrencyEnabled: z.boolean().optional(),
   optionalFields: optionalFieldsSchema.optional(),
+  name: z.string().min(1).optional(),
+  nameEn: z.string().optional(),
+  // 瀏覽器分頁圖示(favicon)網址；空字串代表清掉、改回預設圖示，所以額外接受 ""。
+  logoUrl: z.union([z.string().url(), z.literal("")]).optional(),
 });
 
 // PUT /api/companies/:companyId/settings  （用 companyId 而非 slug，跟其他後台管理路由一致）
@@ -82,7 +86,7 @@ companiesRouter.put(
 
     // optionalFields 存在 Company 上的單一 JSON 欄位裡，這裡只更新有帶到的欄位，
     // 沒帶到的維持原樣，不能直接整包覆蓋掉沒動到的開關。
-    const { optionalFields, ...rest } = parsed.data;
+    const { optionalFields, logoUrl, ...rest } = parsed.data;
     const mergedOptionalFields = optionalFields
       ? { ...(existing.optionalFields as Record<string, boolean>), ...optionalFields }
       : undefined;
@@ -91,9 +95,16 @@ companiesRouter.put(
       where: { id: req.params.companyId },
       data: {
         ...rest,
+        ...(logoUrl !== undefined ? { logoUrl: logoUrl || null } : {}),
         ...(mergedOptionalFields ? { optionalFields: mergedOptionalFields } : {}),
       },
     });
-    res.json({ multiCurrencyEnabled: company.multiCurrencyEnabled, optionalFields: company.optionalFields });
+    res.json({
+      name: company.name,
+      nameEn: company.nameEn,
+      logoUrl: company.logoUrl,
+      multiCurrencyEnabled: company.multiCurrencyEnabled,
+      optionalFields: company.optionalFields,
+    });
   }
 );
