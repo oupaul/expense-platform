@@ -11,24 +11,29 @@ const STATUS_LABEL: Record<string, string> = {
   pending: "審核中",
   approved: "已核准",
   rejected: "已駁回",
+  returned: "已退回待修改",
 };
 
 const STATUS_COLOR: Record<string, string> = {
   pending: "text-amber-600",
   approved: "text-green-600",
   rejected: "text-destructive",
+  returned: "text-amber-700",
 };
 
 // 目前輪到哪一關：從 approvalRecords 找第一個還在 waiting 的關卡標籤，
-// 讓申請人不用點進明細就知道卡在哪。
+// 讓申請人不用點進明細就知道卡在哪。退回後其他關卡可能還留著舊的 waiting 紀錄(重新
+// 送出前不會去動它)，所以要先判斷 returned/approved/rejected 這幾個終止狀態，
+// 不然會誤判成「還在等某一關簽核」。
 function currentStageLabel(app: ApplicationListItem): string {
   if (app.status === "approved") return "已全部核准";
   if (app.status === "rejected") return "已駁回";
+  if (app.status === "returned") return `已被「${app.returnedByStageLabel}」退回`;
   const waiting = app.approvalRecords.find((r) => r.status === "waiting");
   return waiting ? `等待「${waiting.stage.label}」簽核` : "-";
 }
 
-export function MyApplications({ auth }: { auth: AuthState }) {
+export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (applicationId: string) => void }) {
   const isAdmin = auth.user.role === "admin";
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -87,10 +92,15 @@ export function MyApplications({ auth }: { auth: AuthState }) {
                       {STATUS_LABEL[app.status] ?? app.status}
                       <div className="text-xs text-muted-foreground">{currentStageLabel(app)}</div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="space-x-2">
                       <Button size="sm" variant="outline" onClick={() => setExpandedId(expanded ? null : app.id)}>
                         {expanded ? "收合" : "查看明細"}
                       </Button>
+                      {scope === "mine" && app.status === "returned" && onEdit && (
+                        <Button size="sm" onClick={() => onEdit(app.id)}>
+                          編輯並重新送出
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                   {expanded && (

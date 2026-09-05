@@ -7,14 +7,19 @@ import type { ApplicationListItem } from "@/types/application";
 import { Fragment, useState } from "react";
 import { ApplicationDetail } from "@/components/ApplicationDetail";
 import { SignaturePad } from "@/components/SignaturePad";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+
+type DecisionAction = "approve" | "reject" | "return";
 
 export function PendingApprovals({ auth }: { auth: AuthState }) {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
-  // 每張申請單各自的簽核簽名，用 id 存放；核准/駁回前一定要先簽名。
+  // 每張申請單各自的簽核簽名/備註，用 id 存放；核准/駁回/退回前一定要先簽名，退回一定要填備註。
   const [signatures, setSignatures] = useState<Record<string, string | null>>({});
+  const [comments, setComments] = useState<Record<string, string>>({});
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["applications", auth.user.companyId, "pending"],
@@ -24,10 +29,15 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
       }),
   });
 
-  const decide = async (id: string, action: "approve" | "reject") => {
+  const decide = async (id: string, action: DecisionAction) => {
     const signatureImage = signatures[id];
     if (!signatureImage) {
-      setActionError("請先簽名再核准或駁回");
+      setActionError("請先簽名再核准/駁回/退回");
+      return;
+    }
+    const comment = comments[id]?.trim();
+    if (action === "return" && !comment) {
+      setActionError("退回時請填寫備註說明，讓申請人知道要修改什麼");
       return;
     }
     setActionError(null);
@@ -36,10 +46,11 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
       await apiFetch(`/companies/${auth.user.companyId}/applications/${id}/decision`, {
         method: "POST",
         token: auth.token,
-        body: { action, signatureImage },
+        body: { action, signatureImage, comment: comment || undefined },
       });
       queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
       setSignatures((prev) => ({ ...prev, [id]: null }));
+      setComments((prev) => ({ ...prev, [id]: "" }));
       setExpandedId(null);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "操作失敗");
@@ -89,14 +100,31 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
                     <TableCell colSpan={6} className="p-0">
                       <ApplicationDetail auth={auth} applicationId={app.id} />
                       <div className="space-y-3 border-t bg-slate-50 p-4">
+                        <div>
+                          <Label htmlFor={`comment-${app.id}`}>備註說明(退回時必填，核准/駁回選填)</Label>
+                          <Textarea
+                            id={`comment-${app.id}`}
+                            value={comments[app.id] ?? ""}
+                            onChange={(e) => setComments((prev) => ({ ...prev, [app.id]: e.target.value }))}
+                            placeholder="要退回的話，請說明申請人需要修改的地方"
+                          />
+                        </div>
                         <SignaturePad
                           value={signatures[app.id] ?? null}
                           onChange={(v) => setSignatures((prev) => ({ ...prev, [app.id]: v }))}
-                          label="簽核簽名(核准或駁回前必填)"
+                          label="簽核簽名(核准/駁回/退回前必填)"
                         />
                         <div className="flex gap-2">
                           <Button size="sm" disabled={decidingId === app.id || !signatures[app.id]} onClick={() => decide(app.id, "approve")}>
                             核准
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={decidingId === app.id || !signatures[app.id] || !comments[app.id]?.trim()}
+                            onClick={() => decide(app.id, "return")}
+                          >
+                            退回補件
                           </Button>
                           <Button
                             size="sm"

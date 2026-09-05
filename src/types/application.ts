@@ -4,6 +4,9 @@ export interface ApplicationListItem {
   purpose: string | null;
   totalAmountTWD: string;
   status: string;
+  returnComment: string | null;
+  returnedAt: string | null;
+  returnedByStageLabel: string | null;
   applicant: { name: string };
   department: { name: string };
   approvalRecords: {
@@ -15,6 +18,7 @@ export interface ApplicationListItem {
 
 export interface ApplicationItemDetail {
   id: string;
+  categoryId: string;
   description: string | null;
   date: string | null;
   projectCode: string | null;
@@ -37,6 +41,8 @@ export interface ApprovalRecordDetail {
 
 export interface ApplicationDetail {
   id: string;
+  departmentId: string;
+  expenseNatureId: string;
   applicationDate: string;
   purpose: string | null;
   payeeName: string | null;
@@ -44,6 +50,9 @@ export interface ApplicationDetail {
   requestedPaymentDate: string | null;
   totalAmountTWD: string;
   status: string;
+  returnComment: string | null;
+  returnedAt: string | null;
+  returnedByStageLabel: string | null;
   applicant: { name: string; email: string };
   department: { name: string };
   expenseNature: { name: string };

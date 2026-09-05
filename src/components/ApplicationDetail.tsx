@@ -8,6 +8,7 @@ const STATUS_LABEL: Record<string, string> = {
   waiting: "等待中",
   approved: "已核准",
   rejected: "已駁回",
+  returned: "已退回",
 };
 
 // 申請單的完整明細 + 簽核進度時間軸，「待簽核清單」跟「我的申請」共用同一份，
@@ -32,6 +33,18 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
         <div><span className="text-muted-foreground">費用性質：</span>{data.expenseNature.name}</div>
         <div><span className="text-muted-foreground">申請日期：</span>{new Date(data.applicationDate).toLocaleDateString("zh-TW")}</div>
       </div>
+
+      {data.status === "returned" && data.returnComment && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">
+          <div className="font-semibold text-amber-800">
+            已被「{data.returnedByStageLabel}」退回，請修改後重新送出
+          </div>
+          <div className="mt-1 text-amber-700">備註說明：{data.returnComment}</div>
+          {data.returnedAt && (
+            <div className="mt-1 text-xs text-amber-600">{new Date(data.returnedAt).toLocaleString("zh-TW")}</div>
+          )}
+        </div>
+      )}
 
       {data.applicantSignature && (
         <div className="text-sm">
@@ -87,6 +100,8 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
                     ? "text-green-600"
                     : record.status === "rejected"
                     ? "text-destructive"
+                    : record.status === "returned"
+                    ? "text-amber-600"
                     : "text-muted-foreground"
                 }
               >

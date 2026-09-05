@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,6 +11,7 @@ import { ApprovalChain } from "@/components/ApprovalChain";
 import { SignaturePad } from "@/components/SignaturePad";
 import { apiFetch, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
+import type { ApplicationDetail as ApplicationDetailType } from "@/types/application";
 import { ALL_CURRENCIES } from "@/lib/currencies";
 import { PrintableApplicationForm } from "@/components/print/PrintableApplicationForm";
 
@@ -27,7 +28,15 @@ function emptyRow(): ExpenseRowState {
   return { categoryId: "", description: "", amount: "", currency: "TWD" };
 }
 
-export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
+interface Props {
+  auth: AuthState;
+  // 從「我的申請」點「編輯並重新送出」被退回的申請單進來時會帶著這個 id，
+  // 表單會用該筆申請單的既有內容預填，送出時打 resubmit 而不是建立新的一張。
+  editApplicationId?: string | null;
+  onDoneEditing?: () => void;
+}
+
+export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: Props) {
   const queryClient = useQueryClient();
   const { data: config, isLoading, isError } = useCompanyConfig(auth.user.companySlug);
   const [rows, setRows] = useState<ExpenseRowState[]>([emptyRow()]);
@@ -41,9 +50,66 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
     status: "idle",
   });
 
+  const editQuery = useQuery({
+    queryKey: ["application-detail", auth.user.companyId, editApplicationId],
+    queryFn: () =>
+      apiFetch<ApplicationDetailType>(`/companies/${auth.user.companyId}/applications/${editApplicationId}`, {
+        token: auth.token,
+      }),
+    enabled: !!editApplicationId,
+  });
+
+  // 資料回來後把既有內容填進表單——用 ref 記住「已經套用過哪個 id」，避免使用者接著手動
+  // 修改欄位時，因為 query 快取重新算而把手上正在改的內容蓋掉。
+  const appliedEditId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!editApplicationId) {
+      appliedEditId.current = null;
+      return;
+    }
+    if (appliedEditId.current === editApplicationId) return;
+    const data = editQuery.data;
+    if (!data) return;
+    appliedEditId.current = editApplicationId;
+    setDepartmentId(data.departmentId);
+    setExpenseNatureId(data.expenseNatureId);
+    setApplicationDate(data.applicationDate.slice(0, 10));
+    setPayeeName(data.payeeName ?? "");
+    setRequestedPaymentDate(data.requestedPaymentDate ? data.requestedPaymentDate.slice(0, 10) : "");
+    setRows(
+      data.items.map((item) => ({
+        categoryId: item.categoryId,
+        description: item.description ?? "",
+        amount: item.amount,
+        currency: item.currency,
+        projectCode: item.projectCode ?? undefined,
+        invoiceDate: item.invoiceDate ? item.invoiceDate.slice(0, 10) : undefined,
+      }))
+    );
+    // 退回後一定要重新簽名，不能沿用舊簽名。
+    setApplicantSignature(null);
+    setSubmitState({ status: "idle" });
+  }, [editApplicationId, editQuery.data]);
+
+  const resetToCreateMode = () => {
+    setRows([emptyRow()]);
+    setDepartmentId("");
+    setExpenseNatureId("");
+    setApplicationDate(new Date().toISOString().slice(0, 10));
+    setPayeeName("");
+    setRequestedPaymentDate("");
+    setApplicantSignature(null);
+    setSubmitState({ status: "idle" });
+    onDoneEditing?.();
+  };
+
   // 四種狀態都要處理：載入中 / 錯誤 / 空 / 正常
-  if (isLoading) return <div className="p-8 text-center text-muted-foreground">載入表單設定中…</div>;
-  if (isError || !config) return <div className="p-8 text-center text-destructive">表單設定載入失敗，請重新整理再試一次</div>;
+  if (isLoading || (editApplicationId && editQuery.isLoading)) {
+    return <div className="p-8 text-center text-muted-foreground">載入表單設定中…</div>;
+  }
+  if (isError || !config || (editApplicationId && editQuery.isError)) {
+    return <div className="p-8 text-center text-destructive">表單設定載入失敗，請重新整理再試一次</div>;
+  }
 
   const { branding, optionalFields, departments, expenseNatures, expenseCategories, approvalStages, multiCurrencyEnabled, exchangeRates } = config;
 
@@ -103,8 +169,12 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
       return;
     }
     setSubmitState({ status: "submitting" });
+    const isEditing = !!editApplicationId;
+    const path = isEditing
+      ? `/companies/${auth.user.companyId}/applications/${editApplicationId}/resubmit`
+      : `/companies/${auth.user.companyId}/applications`;
     try {
-      await apiFetch(`/companies/${auth.user.companyId}/applications`, {
+      await apiFetch(path, {
         method: "POST",
         token: auth.token,
         body: {
@@ -126,12 +196,16 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
             })),
         },
       });
-      setSubmitState({ status: "success", message: "申請單已送出，等待簽核" });
+      setSubmitState({ status: "success", message: isEditing ? "已重新送出，等待簽核" : "申請單已送出，等待簽核" });
       queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
+      if (isEditing) {
+        queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, editApplicationId] });
+      }
       setRows([emptyRow()]);
       setPayeeName("");
       setRequestedPaymentDate("");
       setApplicantSignature(null);
+      if (isEditing) onDoneEditing?.();
     } catch (err) {
       setSubmitState({ status: "error", message: err instanceof ApiError ? err.message : "送出失敗" });
     }
@@ -158,7 +232,16 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
         />
       </div>
       <div className="min-h-screen bg-slate-100 p-5 print:hidden">
-        <div className="mx-auto max-w-4xl overflow-hidden rounded-xl bg-white shadow-md">
+        <div className="mx-auto max-w-4xl space-y-4">
+          {editApplicationId && (
+            <div className="flex items-center justify-between rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+              <span>正在編輯被退回的申請單，修改內容後重新簽名送出，會重新跑一次完整簽核流程。</span>
+              <Button size="sm" variant="outline" onClick={resetToCreateMode}>
+                取消編輯
+              </Button>
+            </div>
+          )}
+          <div className="overflow-hidden rounded-xl bg-white shadow-md">
           {/* Header：品牌識別完全來自設定，不寫死任何公司名稱 */}
           <div
             className="flex items-center justify-between px-6 py-5 text-white"
@@ -346,9 +429,10 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
                   !applicantSignature
                 }
               >
-                {submitState.status === "submitting" ? "送出中…" : "送出申請"}
+                {submitState.status === "submitting" ? "送出中…" : editApplicationId ? "重新送出申請" : "送出申請"}
               </Button>
             </div>
+          </div>
           </div>
         </div>
       </div>

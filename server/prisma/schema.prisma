@@ -162,10 +162,17 @@ model ExpenseApplication {
   requestedPaymentDate DateTime?
 
   totalAmountTWD Decimal @default(0) @db.Decimal(12, 2)
-  status         String  @default("pending") // pending / approved / rejected
+  status         String  @default("pending") // pending / approved / rejected / returned
 
   // 申請人送出時的電子簽名(手寫或上傳)，存 base64 data URL。
   applicantSignature String? @db.Text
+
+  // 簽核關卡退回時的備註說明——退回是獨立於駁回的動作，退回後申請人可以修改內容重新送出，
+  // 重新跑一次完整簽核流程；這裡只留「最近一次」退回的原因給申請人/簽核者參考，
+  // 不做完整多輪退回的歷史留存(避免把 schema 複雜化)。
+  returnComment        String?   @db.Text
+  returnedAt           DateTime?
+  returnedByStageLabel String?
 
   items           ExpenseItem[]
   approvalRecords ApprovalRecord[]

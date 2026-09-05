@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 interface Props {
@@ -19,6 +19,13 @@ export function SignaturePad({ value, onChange, label }: Props) {
   const drawingRef = useRef(false);
   const [hasDrawn, setHasDrawn] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+
+  // value 被外部清成 null(例如表單送出後重置、或退回重新送出成功後回到全新的建立模式)時，
+  // 畫布會換成一塊全新空白的，但 hasDrawn 是元件自己的 state，不會跟著自動歸零，
+  // 沒有這行的話畫面會留著上一次簽名的「完成簽名/清除重簽」按鈕，卻對應一塊空白畫布。
+  useEffect(() => {
+    if (!value) setHasDrawn(false);
+  }, [value]);
 
   const getContext = () => canvasRef.current?.getContext("2d") ?? null;
 
