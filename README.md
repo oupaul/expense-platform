@@ -259,43 +259,26 @@ sudo systemctl status expense-platform-api
 token 都會失效，需要重新登入；`.env` 本身不在 git 裡，只存在主機上)、**`server/uploads/`**(使用者上傳的
 費用憑證附件檔案，只存在磁碟上，不在資料庫也不在 git 裡——只備份資料庫的話這些附件檔案會遺失)。
 
-### 資料庫備份
+三樣東西用同一支腳本 [`server/scripts/backup.sh`](server/scripts/backup.sh) 一次備份，
+連線資訊直接從 `server/.env` 的 `DATABASE_URL` 解析，不用在別的地方再存一份密碼。
+
+先手動跑一次確認沒問題：
 
 ```bash
-# 建議每天用 cron 跑一次，保留最近 N 天
-mkdir -p /srv/backups/expense-platform
-pg_dump -U expense_app -h localhost expense_platform_prod \
-  | gzip > /srv/backups/expense-platform/db-$(date +%Y%m%d-%H%M%S).sql.gz
-
-# 只保留最近 14 天的備份
-find /srv/backups/expense-platform -name "db-*.sql.gz" -mtime +14 -delete
+cd /srv/apps/expense-platform
+bash server/scripts/backup.sh
+ls /srv/backups/expense-platform/
 ```
 
-加進 crontab(`crontab -e`)，每天凌晨 3 點備份：
+確認沒問題後加進 crontab(`crontab -e`)，每天凌晨 3 點自動備份、保留最近 14 天：
 
 ```
-0 3 * * * pg_dump -U expense_app -h localhost expense_platform_prod | gzip > /srv/backups/expense-platform/db-$(date +\%Y\%m\%d).sql.gz
+0 3 * * * APP_DIR=/srv/apps/expense-platform BACKUP_DIR=/srv/backups/expense-platform KEEP_DAYS=14 bash /srv/apps/expense-platform/server/scripts/backup.sh >> /var/log/expense-platform-backup.log 2>&1
 ```
 
-### `.env` 備份
-
-`server/.env` 含資料庫密碼與 `JWT_SECRET`，不應該進 git，但要另外備份一份到安全的地方(例如密碼管理工具、
-或加密後存到跟資料庫備份不同的地方)：
-
-```bash
-cp server/.env /srv/backups/expense-platform/env-backup-$(date +%Y%m%d)
-chmod 600 /srv/backups/expense-platform/env-backup-*
-```
-
-### 憑證附件備份
-
-```bash
-# 建議跟資料庫備份排在同一個 cron，保持資料庫跟附件檔案的備份時間點一致
-tar czf /srv/backups/expense-platform/uploads-$(date +%Y%m%d-%H%M%S).tar.gz -C /srv/apps/expense-platform/server uploads
-
-# 只保留最近 14 天
-find /srv/backups/expense-platform -name "uploads-*.tar.gz" -mtime +14 -delete
-```
+三個環境變數都有預設值(跟上面範例一樣)，不帶也能跑；log 導到 `/var/log/expense-platform-backup.log`
+是為了 cron 執行失敗時有地方可以查，不然 cron 的輸出預設只會寄 email(如果主機根本沒設定寄信，
+失敗了也不會有任何提示)。之後可以定期(例如每週)瞄一下這個 log 檔確認備份持續正常執行。
 
 ---
 
