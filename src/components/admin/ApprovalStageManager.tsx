@@ -40,8 +40,11 @@ export function ApprovalStageManager({ auth }: { auth: AuthState }) {
     onError,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiFetch(`${basePath}/${id}`, { method: "DELETE", token: auth.token }),
+  const toggleActiveMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      active
+        ? apiFetch(`${basePath}/${id}`, { method: "DELETE", token: auth.token })
+        : apiFetch(`${basePath}/${id}`, { method: "PUT", token: auth.token, body: { active: true } }),
     onSuccess: invalidate,
     onError,
   });
@@ -78,13 +81,14 @@ export function ApprovalStageManager({ auth }: { auth: AuthState }) {
             <TableHead>順序</TableHead>
             <TableHead>角色代號</TableHead>
             <TableHead>顯示標籤</TableHead>
+            <TableHead>狀態</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
         <TableBody>
           {data.length === 0 && (
             <TableRow>
-              <TableCell colSpan={4} className="text-center text-muted-foreground">尚未設定簽核關卡</TableCell>
+              <TableCell colSpan={5} className="text-center text-muted-foreground">尚未設定簽核關卡</TableCell>
             </TableRow>
           )}
           {data.map((stage, i) => (
@@ -111,8 +115,17 @@ export function ApprovalStageManager({ auth }: { auth: AuthState }) {
                   }}
                 />
               </TableCell>
+              <TableCell className={stage.active ? "text-green-600" : "text-muted-foreground"}>
+                {stage.active ? "啟用中" : "已停用"}
+              </TableCell>
               <TableCell>
-                <Button size="sm" variant="destructive" onClick={() => deleteMutation.mutate(stage.id)}>刪除</Button>
+                <Button
+                  size="sm"
+                  variant={stage.active ? "destructive" : "outline"}
+                  onClick={() => toggleActiveMutation.mutate({ id: stage.id, active: stage.active })}
+                >
+                  {stage.active ? "停用" : "重新啟用"}
+                </Button>
               </TableCell>
             </TableRow>
           ))}

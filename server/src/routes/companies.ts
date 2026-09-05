@@ -14,7 +14,7 @@ companiesRouter.get("/:slug/config", async (req, res) => {
       departments: { where: { active: true }, orderBy: { sortOrder: "asc" } },
       expenseCategories: { where: { active: true }, orderBy: { sortOrder: "asc" } },
       expenseNatures: { where: { active: true }, orderBy: { sortOrder: "asc" } },
-      approvalStages: { orderBy: { stageOrder: "asc" } },
+      approvalStages: { where: { active: true }, orderBy: { stageOrder: "asc" } },
       exchangeRates: true,
     },
   });

@@ -13,4 +13,5 @@ export interface ApprovalStageItem {
   stageOrder: number;
   roleKey: string;
   label: string;
+  active: boolean;
 }

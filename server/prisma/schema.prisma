@@ -96,6 +96,9 @@ model ApprovalStage {
   stageOrder Int // 0-based，決定簽核順序
   roleKey    String // 對應 User.role，例如 dept_manager / finance / ceo
   label      String // 顯示用職稱，例如「執行長核准」
+  // 軟刪除：已經有申請單簽核紀錄參照這個關卡時，直接硬刪除會撞到外鍵，
+  // 跟 Department/ExpenseCategory/ExpenseNature 用同一套模式。
+  active     Boolean @default(true)
 
   records ApprovalRecord[]
 

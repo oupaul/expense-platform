@@ -14,6 +14,7 @@ approvalStagesRouter.use(requireAuth, requireSameCompany, requireRole("admin"));
 const upsertSchema = z.object({
   roleKey: z.string().min(1),
   label: z.string().min(1),
+  active: z.boolean().optional(),
 });
 
 // GET /api/companies/:companyId/approval-stages
@@ -74,7 +75,11 @@ approvalStagesRouter.put("/:id", async (req, res) => {
 });
 
 // DELETE /api/companies/:companyId/approval-stages/:id
+// 用 active=false 軟刪除：已經送出的申請單的簽核紀錄會參照這個關卡，直接硬刪除會撞外鍵。
 approvalStagesRouter.delete("/:id", async (req, res) => {
-  await prisma.approvalStage.delete({ where: { id: req.params.id } });
+  await prisma.approvalStage.update({
+    where: { id: req.params.id },
+    data: { active: false },
+  });
   res.status(204).end();
 });

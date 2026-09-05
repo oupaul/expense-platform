@@ -51,7 +51,7 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
     prisma.expenseCategory.findMany({
       where: { id: { in: data.items.map((i) => i.categoryId) }, companyId },
     }),
-    prisma.approvalStage.findMany({ where: { companyId }, orderBy: { stageOrder: "asc" } }),
+    prisma.approvalStage.findMany({ where: { companyId, active: true }, orderBy: { stageOrder: "asc" } }),
     prisma.exchangeRate.findMany({ where: { companyId } }),
   ]);
 
