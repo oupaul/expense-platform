@@ -101,7 +101,9 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
                       <ApplicationDetail auth={auth} applicationId={app.id} />
                       <div className="space-y-3 border-t bg-slate-50 p-4">
                         <div>
-                          <Label htmlFor={`comment-${app.id}`}>備註說明(退回時必填，核准/駁回選填)</Label>
+                          <Label htmlFor={`comment-${app.id}`}>
+                            備註說明(按「退回補件」<span className="text-destructive">一定要先填這欄</span>，核准/駁回則選填)
+                          </Label>
                           <Textarea
                             id={`comment-${app.id}`}
                             value={comments[app.id] ?? ""}
@@ -114,14 +116,19 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
                           onChange={(v) => setSignatures((prev) => ({ ...prev, [app.id]: v }))}
                           label="簽核簽名(核准/駁回/退回前必填)"
                         />
+                        {expandedId === app.id && actionError && (
+                          <p className="text-sm font-medium text-destructive">{actionError}</p>
+                        )}
                         <div className="flex gap-2">
                           <Button size="sm" disabled={decidingId === app.id || !signatures[app.id]} onClick={() => decide(app.id, "approve")}>
                             核准
                           </Button>
+                          {/* 退回按鈕不因為備註沒填就整個反灰——反灰會讓人以為按鈕壞掉，
+                              改成點下去才用 decide() 裡的檢查跳出明確訊息，跟簽名的檢查方式一致。 */}
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={decidingId === app.id || !signatures[app.id] || !comments[app.id]?.trim()}
+                            disabled={decidingId === app.id || !signatures[app.id]}
                             onClick={() => decide(app.id, "return")}
                           >
                             退回補件
