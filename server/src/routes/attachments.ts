@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { Router, type Request } from "express";
 import multer from "multer";
+import sharp from "sharp";
 import { prisma } from "../db.js";
 
 // mergeParams 讓 :companyId(從 index.ts 掛載路徑)、:id(申請單 id，從 applications.ts 的
@@ -16,13 +17,27 @@ const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_FILES = 5;
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
-// storedName = randomUUID() + 副檔名，副檔名要嚴格限制格式，
-// 不然萬一原始檔名夾帶奇怪字元(例如包含 "/")，拼出來的檔名可能變成路徑穿越。
-const SAFE_EXT_PATTERN = /^\.[a-zA-Z0-9]{1,10}$/;
 
-function safeExt(originalname: string): string {
-  const ext = path.extname(originalname);
-  return SAFE_EXT_PATTERN.test(ext) ? ext : "";
+// 圖片一律轉成 WebP 並限制長邊尺寸——手機拍照動輒 4000px 以上、好幾 MB，收據只要看得清楚
+// 文字內容即可，轉檔+限制尺寸疊加通常能把檔案壓到原本的 20~40%。刻意不保留原始位元組，
+// 只存轉檔後的結果(已跟使用者確認過這個取捨)。PDF 不是圖片格式，維持原樣儲存。
+const MAX_IMAGE_DIMENSION = 2000;
+const WEBP_QUALITY = 82;
+// 最終存檔的副檔名固定從「處理後的 mimeType」查表決定，不是從使用者上傳的原始檔名拿，
+// 這樣完全不用擔心原始檔名裡夾帶奇怪字元(例如路徑分隔符)造成路徑穿越。
+const EXT_BY_MIME: Record<string, string> = { "application/pdf": ".pdf", "image/webp": ".webp" };
+
+async function processFile(file: Express.Multer.File): Promise<{ buffer: Buffer; mimeType: string; filename: string }> {
+  if (file.mimetype === "application/pdf") {
+    return { buffer: file.buffer, mimeType: file.mimetype, filename: file.originalname };
+  }
+  const webpBuffer = await sharp(file.buffer)
+    .rotate() // 依 EXIF 方向自動轉正，避免手機直拍存起來變橫的
+    .resize({ width: MAX_IMAGE_DIMENSION, height: MAX_IMAGE_DIMENSION, fit: "inside", withoutEnlargement: true })
+    .webp({ quality: WEBP_QUALITY })
+    .toBuffer();
+  const baseName = file.originalname.replace(/\.[^./]+$/, "") || "image";
+  return { buffer: webpBuffer, mimeType: "image/webp", filename: `${baseName}.webp` };
 }
 
 const upload = multer({
@@ -76,15 +91,16 @@ attachmentsRouter.post("/", (req, res, next) => {
 
   const created = [];
   for (const file of files) {
-    const storedName = `${randomUUID()}${safeExt(file.originalname)}`;
-    fs.writeFileSync(path.join(dir, storedName), file.buffer);
+    const processed = await processFile(file);
+    const storedName = `${randomUUID()}${EXT_BY_MIME[processed.mimeType]}`;
+    fs.writeFileSync(path.join(dir, storedName), processed.buffer);
     const attachment = await prisma.attachment.create({
       data: {
         applicationId,
-        filename: file.originalname,
+        filename: processed.filename,
         storedName,
-        mimeType: file.mimetype,
-        size: file.size,
+        mimeType: processed.mimeType,
+        size: processed.buffer.length,
         uploadedById: auth.userId,
       },
     });
