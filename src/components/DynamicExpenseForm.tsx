@@ -148,11 +148,8 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
           approvalStages={approvalStages}
         />
       </div>
-      <div
-        className="min-h-screen p-5 print:hidden"
-        style={{ background: `linear-gradient(135deg, ${branding.gradientFrom} 0%, ${branding.gradientTo} 100%)` }}
-      >
-        <div className="mx-auto max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+      <div className="min-h-screen bg-slate-100 p-5 print:hidden">
+        <div className="mx-auto max-w-4xl overflow-hidden rounded-xl bg-white shadow-md">
           {/* Header：品牌識別完全來自設定，不寫死任何公司名稱 */}
           <div
             className="flex items-center justify-between px-6 py-5 text-white"

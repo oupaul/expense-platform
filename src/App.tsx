@@ -31,7 +31,9 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
 
   return (
     <div>
-      <div className="fixed left-1/2 top-3 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/90 p-1 shadow-lg print:hidden">
+      {/* sticky 而非 fixed：佔用實際版面高度、把下面內容往下推，
+          不會疊在公司名稱上面(手機窄螢幕尤其明顯)。flex-wrap 讓按鈕在窄螢幕自動換行。 */}
+      <div className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b bg-white/95 px-4 py-2 shadow-sm print:hidden">
         {tabButton("form", "填寫申請單")}
         {tabButton("my-applications", "我的申請")}
         {tabButton("approvals", "待簽核")}
@@ -42,22 +44,22 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
       </div>
       {tab === "form" && <DynamicExpenseForm auth={auth} />}
       {tab === "my-applications" && (
-        <div className="min-h-screen bg-slate-50 pt-20">
+        <div className="min-h-screen bg-slate-50">
           <MyApplications auth={auth} />
         </div>
       )}
       {tab === "approvals" && (
-        <div className="min-h-screen bg-slate-50 pt-20">
+        <div className="min-h-screen bg-slate-50">
           <PendingApprovals auth={auth} />
         </div>
       )}
       {tab === "admin" && isAdmin && (
-        <div className="min-h-screen bg-slate-50 pt-20">
+        <div className="min-h-screen bg-slate-50">
           <AdminPanel auth={auth} />
         </div>
       )}
       {tab === "password" && (
-        <div className="min-h-screen bg-slate-50 pt-20">
+        <div className="min-h-screen bg-slate-50">
           <ChangePasswordForm auth={auth} />
         </div>
       )}
