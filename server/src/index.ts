@@ -11,6 +11,8 @@ import { authRouter } from "./routes/auth.js";
 import { applicationsRouter } from "./routes/applications.js";
 import { exchangeRatesRouter } from "./routes/exchangeRates.js";
 import { usersRouter } from "./routes/users.js";
+import { platformAuthRouter } from "./routes/platformAuth.js";
+import { platformRouter } from "./routes/platform.js";
 
 const app = express();
 
@@ -20,6 +22,8 @@ app.use(express.json({ limit: "5mb" }));
 app.use(pinoHttp());
 
 app.use("/api/auth", authRouter);
+app.use("/api/platform-auth", platformAuthRouter);
+app.use("/api/platform", platformRouter);
 app.use("/api/companies", companiesRouter);
 app.use("/api/companies/:companyId/departments", createOptionRouter(() => prisma.department));
 app.use(

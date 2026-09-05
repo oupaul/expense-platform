@@ -6,6 +6,7 @@ import { MyApplications } from "@/components/MyApplications";
 import { AdminPanel } from "@/components/admin/AdminPanel";
 import { LoginForm } from "@/components/LoginForm";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
+import { PlatformApp } from "@/components/platform/PlatformApp";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import type { AuthState } from "@/types/auth";
@@ -85,7 +86,7 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
       )}
       {tab === "password" && (
         <div className="min-h-screen bg-slate-50">
-          <ChangePasswordForm auth={auth} />
+          <ChangePasswordForm token={auth.token} />
         </div>
       )}
     </div>
@@ -94,10 +95,19 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
 
 function App() {
   const { auth, login, logout } = useAuth();
+  // /platform 是服務供應商管理租戶用的入口，跟一般租戶使用者的登入完全分開一套畫面/token，
+  // 用路徑判斷走哪一邊就好，不需要為了這一個分岔另外拉一個路由函式庫進來。
+  const isPlatformRoute = window.location.pathname.startsWith("/platform");
 
   return (
     <QueryClientProvider client={queryClient}>
-      {auth ? <AuthenticatedApp auth={auth} logout={logout} /> : <LoginForm onLogin={login} />}
+      {isPlatformRoute ? (
+        <PlatformApp />
+      ) : auth ? (
+        <AuthenticatedApp auth={auth} logout={logout} />
+      ) : (
+        <LoginForm onLogin={login} />
+      )}
     </QueryClientProvider>
   );
 }

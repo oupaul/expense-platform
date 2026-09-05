@@ -12,6 +12,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx --env-file=.env prisma/seed.ts",
+    "seed:platform-admin": "tsx --env-file=.env prisma/seedPlatformAdmin.ts",
     "install:safe": "npm ci --ignore-scripts"
   },
   "dependencies": {

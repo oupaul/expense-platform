@@ -7,6 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ── 平台管理者(服務供應商) ─────────────────────────────
+// 跟租戶內部的 User 是完全分開的兩套帳號體系：User 一定屬於某個 Company(companyId 必填)，
+// 這裡的帳號不屬於任何租戶，是平台方用來建立/管理租戶本身的身分，故意不共用同一張表，
+// 避免「租戶管理員」跟「平台管理員」的權限邊界混在一起搞錯。
+model PlatformAdmin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
 // ── 租戶(公司) ─────────────────────────────────────
 // 品牌識別 + 表單結構開關都放在這裡，因為這些是「一家公司改一次、很少變動」的設定，
 // 不需要像部門/費用類別那樣做成獨立的可增刪列表。

@@ -3,9 +3,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { apiFetch, ApiError } from "@/lib/api";
-import type { AuthState } from "@/types/auth";
 
-export function ChangePasswordForm({ auth }: { auth: AuthState }) {
+interface Props {
+  token: string;
+  // 租戶使用者跟平台管理者的變更密碼端點不一樣，呼叫端各自傳自己的路徑，
+  // 元件本身的表單/驗證邏輯完全共用。
+  path?: string;
+}
+
+export function ChangePasswordForm({ token, path = "/auth/change-password" }: Props) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -21,9 +27,9 @@ export function ChangePasswordForm({ auth }: { auth: AuthState }) {
     }
     setState({ status: "submitting" });
     try {
-      await apiFetch("/auth/change-password", {
+      await apiFetch(path, {
         method: "POST",
-        token: auth.token,
+        token,
         body: { currentPassword, newPassword },
       });
       setState({ status: "success", message: "密碼已更新" });

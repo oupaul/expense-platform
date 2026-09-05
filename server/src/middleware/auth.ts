@@ -31,3 +31,12 @@ export function requireRole(...roles: string[]) {
     next();
   };
 }
+
+// 平台管理者(服務供應商)專用：管理租戶本身的路由用這個，不能用 requireSameCompany
+// (平台管理者的 token 沒有 companyId，本來就不該通過那個檢查)。
+export function requirePlatformAdmin(req: Request, res: Response, next: NextFunction) {
+  if (req.auth?.role !== "platform_admin") {
+    return res.status(403).json({ error: "權限不足" });
+  }
+  next();
+}
