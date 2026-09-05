@@ -134,6 +134,7 @@ model User {
 
   applications   ExpenseApplication[] @relation("Applicant")
   approvalRecords ApprovalRecord[]
+  uploadedAttachments Attachment[]
 
   createdAt DateTime @default(now())
 
@@ -176,12 +177,35 @@ model ExpenseApplication {
 
   items           ExpenseItem[]
   approvalRecords ApprovalRecord[]
+  attachments     Attachment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([companyId, status])
   @@index([applicantId])
+}
+
+model Attachment {
+  id            String             @id @default(cuid())
+  applicationId String
+  application   ExpenseApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // 憑證檔案存在伺服器磁碟(server/uploads/)，不進 DB 也不進 git——手機拍照動輒好幾 MB，
+  // 一張申請單可能有好幾張憑證，塞 base64 進 Postgres 會讓資料庫肥大、備份變慢。
+  // filename 是原始檔名(顯示用)，storedName 是實際存在磁碟上的檔名(用 cuid 產生，
+  // 避免撞名或路徑穿越攻擊，跟使用者上傳的原始檔名脫鉤)。
+  filename   String
+  storedName String
+  mimeType   String
+  size       Int
+
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([applicationId])
 }
 
 model ExpenseItem {

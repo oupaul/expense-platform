@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch } from "@/lib/api";
+import { AttachmentList } from "@/components/AttachmentList";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationDetail as ApplicationDetailType } from "@/types/application";
 
@@ -88,6 +89,13 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
         </Table>
         <div className="mt-2 text-right text-sm font-semibold">合計：{data.totalAmountTWD} TWD</div>
       </div>
+
+      {data.attachments.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-sm font-semibold">憑證附件</h4>
+          <AttachmentList auth={auth} applicationId={data.id} attachments={data.attachments} />
+        </div>
+      )}
 
       <div>
         <h4 className="mb-2 text-sm font-semibold">簽核進度</h4>

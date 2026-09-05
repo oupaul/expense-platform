@@ -251,8 +251,9 @@ sudo systemctl status expense-platform-api
 
 ## 備份
 
-需要備份的東西只有兩樣：**資料庫**、**`server/.env`**(裡面的 `JWT_SECRET` 遺失的話，所有人的登入
-token 都會失效，需要重新登入；`.env` 本身不在 git 裡，只存在主機上)。
+需要備份的東西有三樣：**資料庫**、**`server/.env`**(裡面的 `JWT_SECRET` 遺失的話，所有人的登入
+token 都會失效，需要重新登入；`.env` 本身不在 git 裡，只存在主機上)、**`server/uploads/`**(使用者上傳的
+費用憑證附件檔案，只存在磁碟上，不在資料庫也不在 git 裡——只備份資料庫的話這些附件檔案會遺失)。
 
 ### 資料庫備份
 
@@ -280,6 +281,16 @@ find /srv/backups/expense-platform -name "db-*.sql.gz" -mtime +14 -delete
 ```bash
 cp server/.env /srv/backups/expense-platform/env-backup-$(date +%Y%m%d)
 chmod 600 /srv/backups/expense-platform/env-backup-*
+```
+
+### 憑證附件備份
+
+```bash
+# 建議跟資料庫備份排在同一個 cron，保持資料庫跟附件檔案的備份時間點一致
+tar czf /srv/backups/expense-platform/uploads-$(date +%Y%m%d-%H%M%S).tar.gz -C /srv/apps/expense-platform/server uploads
+
+# 只保留最近 14 天
+find /srv/backups/expense-platform -name "uploads-*.tar.gz" -mtime +14 -delete
 ```
 
 ---
@@ -315,13 +326,20 @@ cp /srv/backups/expense-platform/env-backup-20260101 server/.env
 還原 `.env` 之後如果 `JWT_SECRET` 跟還原前不一樣，所有使用者現有的登入 token 會失效(需要重新登入)，
 但不影響資料本身。
 
+### 還原憑證附件
+
+```bash
+tar xzf /srv/backups/expense-platform/uploads-20260101.tar.gz -C /srv/apps/expense-platform/server
+```
+
 ### 完整重建(新主機 disaster recovery)
 
 1. 依「部署」章節的步驟 1–3 重新裝好系統套件、clone 程式碼、建立資料庫帳號
 2. 用上面的「還原資料庫」把備份的 `.sql.gz` 灌回新建立的資料庫
 3. 用上面的「還原 `.env`」把備份的 `.env` 複製回 `server/.env`
-4. 執行「部署」步驟 4(建置)、5(systemd)、6(nginx)、7(防火牆)
-5. 確認 `systemctl status expense-platform-api` 正常、瀏覽器打開網域能看到登入畫面
+4. 用上面的「還原憑證附件」把備份的 `uploads-*.tar.gz` 解回 `server/uploads/`
+5. 執行「部署」步驟 4(建置)、5(systemd)、6(nginx)、7(防火牆)
+6. 確認 `systemctl status expense-platform-api` 正常、瀏覽器打開網域能看到登入畫面
 
 ---
 

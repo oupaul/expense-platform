@@ -9,7 +9,8 @@ import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 import { BrandingProvider } from "@/components/BrandingProvider";
 import { ApprovalChain } from "@/components/ApprovalChain";
 import { SignaturePad } from "@/components/SignaturePad";
-import { apiFetch, ApiError } from "@/lib/api";
+import { AttachmentUpload, type StagedFile } from "@/components/AttachmentUpload";
+import { apiFetch, apiUpload, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationDetail as ApplicationDetailType } from "@/types/application";
 import { ALL_CURRENCIES } from "@/lib/currencies";
@@ -46,6 +47,10 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const [payeeName, setPayeeName] = useState("");
   const [requestedPaymentDate, setRequestedPaymentDate] = useState("");
   const [applicantSignature, setApplicantSignature] = useState<string | null>(null);
+  // 建立中、還沒有申請單 id 時，選好的憑證檔案先留在這裡；等申請單真的建立成功拿到 id，
+  // handleSubmit 會立刻把這些暫存檔案補傳上去。編輯已存在的申請單則不會用到這個狀態，
+  // 那種情況 AttachmentUpload 會直接打 API 上傳，不需要暫存。
+  const [stagedAttachments, setStagedAttachments] = useState<StagedFile[]>([]);
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" | "success" | "error"; message?: string }>({
     status: "idle",
   });
@@ -99,6 +104,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     setPayeeName("");
     setRequestedPaymentDate("");
     setApplicantSignature(null);
+    stagedAttachments.forEach((f) => URL.revokeObjectURL(f.previewUrl));
+    setStagedAttachments([]);
     setSubmitState({ status: "idle" });
     onDoneEditing?.();
   };
@@ -174,7 +181,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       ? `/companies/${auth.user.companyId}/applications/${editApplicationId}/resubmit`
       : `/companies/${auth.user.companyId}/applications`;
     try {
-      await apiFetch(path, {
+      const created = await apiFetch<{ id: string }>(path, {
         method: "POST",
         token: auth.token,
         body: {
@@ -196,7 +203,25 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
             })),
         },
       });
-      setSubmitState({ status: "success", message: isEditing ? "已重新送出，等待簽核" : "申請單已送出，等待簽核" });
+      // 建立時還沒有申請單 id，暫存的憑證附件要等這裡拿到新 id 才能真的補傳上去；
+      // 上傳失敗不擋成功訊息(申請單本身已經送出)，只提醒使用者附件沒傳成功。
+      let attachmentWarning: string | undefined;
+      if (!isEditing && stagedAttachments.length > 0) {
+        try {
+          await apiUpload(
+            `/companies/${auth.user.companyId}/applications/${created.id}/attachments`,
+            stagedAttachments.map((f) => f.file),
+            auth.token
+          );
+        } catch {
+          attachmentWarning = "申請單已送出，但憑證附件上傳失敗，請到「我的申請」重新上傳。";
+        }
+        stagedAttachments.forEach((f) => URL.revokeObjectURL(f.previewUrl));
+      }
+      setSubmitState({
+        status: "success",
+        message: attachmentWarning ?? (isEditing ? "已重新送出，等待簽核" : "申請單已送出，等待簽核"),
+      });
       queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
       if (isEditing) {
         queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, editApplicationId] });
@@ -205,6 +230,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       setPayeeName("");
       setRequestedPaymentDate("");
       setApplicantSignature(null);
+      setStagedAttachments([]);
       if (isEditing) onDoneEditing?.();
     } catch (err) {
       setSubmitState({ status: "error", message: err instanceof ApiError ? err.message : "送出失敗" });
@@ -401,6 +427,20 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
 
             <div className="text-right text-lg font-bold" style={{ color: branding.primaryColor }}>
               合計金額：{total.toFixed(0)} TWD
+            </div>
+
+            {/* 憑證附件：整張申請單共用一個上傳區，手機可拍照/選相簿，電腦可選檔案 */}
+            <div className="rounded border border-dashed border-slate-300 p-4">
+              <AttachmentUpload
+                auth={auth}
+                applicationId={editApplicationId ?? null}
+                existingAttachments={editApplicationId ? editQuery.data?.attachments ?? [] : []}
+                stagedFiles={stagedAttachments}
+                onStagedFilesChange={setStagedAttachments}
+                onExistingChange={() =>
+                  queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, editApplicationId] })
+                }
+              />
             </div>
 
             {/* 簽核欄：關卡數量與職稱完全來自 approvalStages，不寫死幾關 */}

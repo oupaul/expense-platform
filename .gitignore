@@ -9,3 +9,6 @@ dist-ssr
 !.env.example
 
 .DS_Store
+
+# 使用者上傳的憑證附件檔案，存磁碟不進 git(可能含個資/財務資訊)
+server/uploads/

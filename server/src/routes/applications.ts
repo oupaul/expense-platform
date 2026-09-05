@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { requireAuth, requireSameCompany } from "../middleware/auth.js";
 import { ALL_CURRENCIES } from "../constants.js";
+import { attachmentsRouter } from "./attachments.js";
 
 // mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
 // 自己的路徑字面量(例如 "/:id")推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
@@ -19,6 +20,7 @@ const signatureSchema = z
 
 export const applicationsRouter = Router({ mergeParams: true });
 applicationsRouter.use(requireAuth, requireSameCompany);
+applicationsRouter.use("/:id/attachments", attachmentsRouter);
 
 const itemSchema = z.object({
   categoryId: z.string().min(1),
@@ -202,6 +204,7 @@ applicationsRouter.get("/:id", async (req: CompanyScopedWithId, res) => {
         include: { stage: true, approver: { select: { name: true } } },
         orderBy: { stage: { stageOrder: "asc" } },
       },
+      attachments: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!application) return res.status(404).json({ error: "找不到申請單" });

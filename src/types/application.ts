@@ -29,6 +29,13 @@ export interface ApplicationItemDetail {
   category: { name: string };
 }
 
+export interface AttachmentMeta {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface ApprovalRecordDetail {
   id: string;
   status: string;
@@ -59,4 +66,5 @@ export interface ApplicationDetail {
   applicantSignature: string | null;
   items: ApplicationItemDetail[];
   approvalRecords: ApprovalRecordDetail[];
+  attachments: AttachmentMeta[];
 }
