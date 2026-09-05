@@ -246,7 +246,12 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
   }
 
   const { action, comment, signatureImage } = parsed.data;
-  const isLastStage = currentRecord.stage.stageOrder === application.approvalRecords.length - 1;
+  // 不能直接拿 stage.stageOrder 跟「這張申請單有幾個關卡」比大小：關卡如果曾經被停用/新增/
+  // 拖曳調整過順序，stageOrder 的數值會有跳號(例如只剩 1、2 兩關是啟用的)，跟這張申請單
+  // 實際的關卡「筆數」對不起來，比對會誤判，讓中間某一關被當成最後一關直接核准過關。
+  // 正確做法是看這個關卡在「這張申請單自己的、已經按 stageOrder 排序好的關卡清單」裡排第幾個。
+  const currentIndex = application.approvalRecords.findIndex((r) => r.id === currentRecord.id);
+  const isLastStage = currentIndex === application.approvalRecords.length - 1;
   const recordStatus = action === "approve" ? "approved" : action === "reject" ? "rejected" : "returned";
   const applicationStatus =
     action === "reject" ? "rejected" : action === "return" ? "returned" : isLastStage ? "approved" : "pending";
