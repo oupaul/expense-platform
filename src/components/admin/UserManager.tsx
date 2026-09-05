@@ -66,9 +66,11 @@ export function UserManager({ auth }: { auth: AuthState }) {
     onError,
   });
 
-  const changeRoleMutation = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: string }) =>
-      apiFetch(`${basePath}/${id}`, { method: "PUT", token: auth.token, body: { role } }),
+  // 角色/姓名/Email/部門都是同一支 PUT /:id 在改，共用一個 mutation 就好，
+  // 不用每個欄位各開一個(改一個欄位要加一次 mutation 太瑣碎)。
+  const updateMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<UserItem, "name" | "email" | "role" | "departmentId">> }) =>
+      apiFetch(`${basePath}/${id}`, { method: "PUT", token: auth.token, body: patch }),
     onSuccess: invalidate,
     onError,
   });
@@ -95,6 +97,7 @@ export function UserManager({ auth }: { auth: AuthState }) {
           <TableRow>
             <TableHead>姓名</TableHead>
             <TableHead>Email</TableHead>
+            <TableHead>部門</TableHead>
             <TableHead>角色</TableHead>
             <TableHead>狀態</TableHead>
             <TableHead />
@@ -103,10 +106,43 @@ export function UserManager({ auth }: { auth: AuthState }) {
         <TableBody>
           {users.map((u) => (
             <TableRow key={u.id}>
-              <TableCell>{u.name}</TableCell>
-              <TableCell>{u.email}</TableCell>
               <TableCell>
-                <Select value={u.role} onValueChange={(role) => changeRoleMutation.mutate({ id: u.id, role })}>
+                <Input
+                  className="w-32"
+                  defaultValue={u.name}
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value && value !== u.name) updateMutation.mutate({ id: u.id, patch: { name: value } });
+                  }}
+                />
+              </TableCell>
+              <TableCell>
+                <Input
+                  className="w-48"
+                  type="email"
+                  defaultValue={u.email}
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value && value !== u.email) updateMutation.mutate({ id: u.id, patch: { email: value } });
+                  }}
+                />
+              </TableCell>
+              <TableCell>
+                <Select
+                  value={u.departmentId ?? "__none__"}
+                  onValueChange={(v) => updateMutation.mutate({ id: u.id, patch: { departmentId: v === "__none__" ? null : v } })}
+                >
+                  <SelectTrigger className="w-32"><SelectValue placeholder="不指定" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">不指定</SelectItem>
+                    {(departments ?? []).filter((d) => d.active).map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TableCell>
+              <TableCell>
+                <Select value={u.role} onValueChange={(role) => updateMutation.mutate({ id: u.id, patch: { role } })}>
                   <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {roleOptions.map((r) => (
