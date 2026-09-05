@@ -1,7 +1,11 @@
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 import { AttachmentList } from "@/components/AttachmentList";
+import { useCompanyConfig } from "@/hooks/useCompanyConfig";
+import { PrintableApplicationForm } from "@/components/print/PrintableApplicationForm";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationDetail as ApplicationDetailType } from "@/types/application";
 
@@ -22,17 +26,49 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
         token: auth.token,
       }),
   });
+  // 只是要拿公司品牌設定(顏色、名稱)給列印版面用；這個 query 在別的地方(填寫申請單)
+  // 已經打過、有 5 分鐘快取，這裡再叫一次不會多一次真正的網路請求。
+  const { data: config } = useCompanyConfig(auth.user.companySlug);
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground">載入明細中…</div>;
   if (isError || !data) return <div className="p-4 text-sm text-destructive">載入失敗</div>;
 
+  // 已經送出/簽核完成的申請單，列印要呈現的是「這張單實際記錄的內容」，不是公司目前的
+  // optionalFields/多幣別開關——那些設定之後可能會被後台改掉，但這張單當初填了什麼、
+  // 用了什麼幣別，應該照實呈現，不該因為公司設定變了而在舊單子的列印結果上消失或變動。
+  const printOptionalFields = {
+    projectCode: data.items.some((i) => i.projectCode),
+    invoiceDate: data.items.some((i) => i.invoiceDate),
+    payeeInfo: !!data.payeeName,
+    requestedPaymentDate: !!data.requestedPaymentDate,
+  };
+  const printMultiCurrencyEnabled = data.items.some((i) => i.currency !== "TWD");
+  const printRows = data.items.map((item) => ({
+    categoryName: item.category.name,
+    description: item.description ?? "",
+    projectCode: item.projectCode ?? undefined,
+    invoiceDate: item.invoiceDate ?? undefined,
+    currency: item.currency,
+    amount: item.amount,
+    amountInTWD: Number(item.amountInTWD),
+  }));
+  const signatureBoxes = [
+    { id: "applicant", label: "申請人", signature: data.applicantSignature },
+    ...data.approvalRecords.map((r) => ({ id: r.id, label: r.stage.label, signature: r.signatureImage })),
+  ];
+
   return (
     <div className="space-y-4 bg-slate-50 p-4">
-      <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-        <div><span className="text-muted-foreground">申請人：</span>{data.applicant.name}({data.applicant.email})</div>
-        <div><span className="text-muted-foreground">部門：</span>{data.department.name}</div>
-        <div><span className="text-muted-foreground">費用性質：</span>{data.expenseNature.name}</div>
-        <div><span className="text-muted-foreground">申請日期：</span>{new Date(data.applicationDate).toLocaleDateString("zh-TW")}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="grid grow grid-cols-2 gap-2 text-sm md:grid-cols-4">
+          <div><span className="text-muted-foreground">申請人：</span>{data.applicant.name}({data.applicant.email})</div>
+          <div><span className="text-muted-foreground">部門：</span>{data.department.name}</div>
+          <div><span className="text-muted-foreground">費用性質：</span>{data.expenseNature.name}</div>
+          <div><span className="text-muted-foreground">申請日期：</span>{new Date(data.applicationDate).toLocaleDateString("zh-TW")}</div>
+        </div>
+        <Button size="sm" variant="outline" className="print:hidden" onClick={() => window.print()}>
+          📄 列印 / 匯出 PDF
+        </Button>
       </div>
 
       {data.status === "returned" && data.returnComment && (
@@ -127,6 +163,34 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
           ))}
         </div>
       </div>
+
+      {/* 列印版面用 portal 直接掛到 document.body，脫離目前所在的表格/清單 DOM 結構——
+          這個元件常常是巢狀在「我的申請」「待簽核清單」的表格列展開內容裡，如果列印區塊
+          留在原本的位置，父層只要有任何一層被標成 print:hidden，這個區塊也會被一起隱藏
+          (子層再怎麼設 print:block 都救不回被 display:none 的祖先)，印出來就會是空白。
+          掛到 body 之後完全不受原本頁面結構影響，一定看得到。 */}
+      {config &&
+        createPortal(
+          <div className="hidden print:block">
+            <PrintableApplicationForm
+              branding={config.branding}
+              applicantName={data.applicant.name}
+              departmentName={data.department.name}
+              applicationDate={new Date(data.applicationDate).toLocaleDateString("zh-TW")}
+              expenseNatureName={data.expenseNature.name}
+              optionalFields={printOptionalFields}
+              multiCurrencyEnabled={printMultiCurrencyEnabled}
+              rows={printRows}
+              payeeName={data.payeeName ?? undefined}
+              requestedPaymentDate={
+                data.requestedPaymentDate ? new Date(data.requestedPaymentDate).toLocaleDateString("zh-TW") : undefined
+              }
+              total={Number(data.totalAmountTWD)}
+              signatureBoxes={signatureBoxes}
+            />
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

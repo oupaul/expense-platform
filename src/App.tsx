@@ -68,8 +68,13 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
           onDoneEditing={() => setEditApplicationId(null)}
         />
       )}
+      {/* 這幾個分頁本身平常不需要列印，print:hidden 讓它們在進入列印模式時完全消失——
+          真正要印出來的內容(ApplicationDetail 裡的申請單) 是用 portal 直接掛在
+          document.body 上，不在這個會被隱藏的子樹裡，不受影響。「填寫申請單」那個分頁
+          不能套用同樣的 print:hidden，它自己內部就有一組跟編輯畫面互斥的列印版面，
+          兩者是同一層的手足元素，把整個分頁包起來隱藏會連它自己的列印版面也一起藏掉。 */}
       {tab === "my-applications" && (
-        <div className="min-h-screen bg-slate-50">
+        <div className="min-h-screen bg-slate-50 print:hidden">
           <MyApplications
             auth={auth}
             onEdit={(id) => {
@@ -80,17 +85,17 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
         </div>
       )}
       {tab === "approvals" && (
-        <div className="min-h-screen bg-slate-50">
+        <div className="min-h-screen bg-slate-50 print:hidden">
           <PendingApprovals auth={auth} />
         </div>
       )}
       {tab === "admin" && isAdmin && (
-        <div className="min-h-screen bg-slate-50">
+        <div className="min-h-screen bg-slate-50 print:hidden">
           <AdminPanel auth={auth} />
         </div>
       )}
       {tab === "password" && (
-        <div className="min-h-screen bg-slate-50">
+        <div className="min-h-screen bg-slate-50 print:hidden">
           <ChangePasswordForm token={auth.token} />
         </div>
       )}

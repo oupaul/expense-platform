@@ -253,8 +253,10 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
           payeeName={payeeName}
           requestedPaymentDate={requestedPaymentDate}
           total={total}
-          approvalStages={approvalStages}
-          applicantSignature={applicantSignature}
+          signatureBoxes={[
+            { id: "applicant", label: "申請人", signature: applicantSignature },
+            ...approvalStages.map((s) => ({ id: s.id, label: s.label })),
+          ]}
         />
       </div>
       <div className="min-h-screen bg-slate-100 p-5 print:hidden">

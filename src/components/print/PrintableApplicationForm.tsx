@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { usePrintFit } from "@/hooks/usePrintFit";
-import type { Branding, OptionalFields, ApprovalStageConfig } from "@/types/company-config";
+import type { Branding, OptionalFields } from "@/types/company-config";
 
 export interface PrintableRow {
   categoryName: string;
@@ -10,6 +10,12 @@ export interface PrintableRow {
   currency: string;
   amount: string;
   amountInTWD: number | null;
+}
+
+export interface PrintableSignatureBox {
+  id: string;
+  label: string;
+  signature?: string | null;
 }
 
 interface Props {
@@ -24,8 +30,11 @@ interface Props {
   payeeName?: string;
   requestedPaymentDate?: string;
   total: number;
-  approvalStages: ApprovalStageConfig[];
-  applicantSignature?: string | null;
+  // 呼叫端自己組好每一格簽核欄要顯示誰、簽了沒有——填寫中的申請單只有申請人簽了，
+  // 其他關卡都是空的；已經簽核完成的申請單則每一關都要秀出實際簽名，
+  // 兩種情境的資料來源完全不同(前者是即時表單狀態，後者是已存檔的簽核紀錄)，
+  // 讓元件收現成的陣列比自己內部判斷簡單、也不用另外分辨兩種情境。
+  signatureBoxes: PrintableSignatureBox[];
 }
 
 const ROWS_PER_PAGE = 5;
@@ -54,19 +63,13 @@ export function PrintableApplicationForm(props: Props) {
     payeeName,
     requestedPaymentDate,
     total,
-    approvalStages,
-    applicantSignature,
+    signatureBoxes,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const pages = chunk(rows, ROWS_PER_PAGE);
   const isPaginated = pages.length > 1;
   usePrintFit(containerRef, !isPaginated);
-
-  const signatureBoxes = [
-    { id: "applicant", label: "申請人", signature: applicantSignature },
-    ...approvalStages.map((s) => ({ id: s.id, label: s.label, signature: undefined as string | null | undefined })),
-  ];
 
   const renderHeader = () => (
     <div className="flex items-center justify-between px-6 py-4 text-white" style={{ backgroundColor: branding.headerBgColor }}>
