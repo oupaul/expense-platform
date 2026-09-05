@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates, arrayMove } from "@dnd-kit/sortable";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableTableRow } from "@/components/admin/SortableTableRow";
 import { apiFetch, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { OptionItem } from "@/types/admin";
@@ -23,6 +26,7 @@ export function OptionManager({ auth, resourcePath, title, showRequiresProjectCo
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const basePath = `/companies/${auth.user.companyId}/${resourcePath}`;
+  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
   const { data, isLoading, isError } = useQuery({
     queryKey,
@@ -71,13 +75,12 @@ export function OptionManager({ auth, resourcePath, title, showRequiresProjectCo
     onError,
   });
 
-  const move = (index: number, direction: -1 | 1) => {
-    if (!data) return;
-    const target = index + direction;
-    if (target < 0 || target >= data.length) return;
-    const ids = data.map((item) => item.id);
-    [ids[index], ids[target]] = [ids[target], ids[index]];
-    reorderMutation.mutate(ids);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!data || !over || active.id === over.id) return;
+    const oldIndex = data.findIndex((item) => item.id === active.id);
+    const newIndex = data.findIndex((item) => item.id === over.id);
+    reorderMutation.mutate(arrayMove(data, oldIndex, newIndex).map((item) => item.id));
   };
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground">載入中…</div>;
@@ -88,69 +91,73 @@ export function OptionManager({ auth, resourcePath, title, showRequiresProjectCo
   return (
     <div className="space-y-3">
       <h3 className="font-semibold">{title}</h3>
+      <p className="text-xs text-muted-foreground">拖曳最左邊的把手可以調整順序。</p>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>順序</TableHead>
-            <TableHead>名稱</TableHead>
-            {showRequiresProjectCode && <TableHead>需要專案編號</TableHead>}
-            <TableHead>狀態</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.length === 0 && (
+      {/* DndContext 會渲染無障礙提示用的 <div>，一定要包在 <Table> 外面，
+          不能放進 <TableBody>(也就是 <tbody>)裡——<div> 不是 <tbody> 的合法子元素，
+          瀏覽器會把它搬到別的地方，dnd-kit 量測 DOM 位置就會算錯，拖曳/鍵盤移動因此失效。 */}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={columnCount} className="text-center text-muted-foreground">
-                尚未設定任何項目
-              </TableCell>
+              <TableHead />
+              <TableHead>名稱</TableHead>
+              {showRequiresProjectCode && <TableHead>需要專案編號</TableHead>}
+              <TableHead>狀態</TableHead>
+              <TableHead />
             </TableRow>
-          )}
-          {data.map((item, i) => (
-            <TableRow key={item.id}>
-              <TableCell className="space-x-1">
-                <Button size="sm" variant="outline" disabled={i === 0} onClick={() => move(i, -1)}>↑</Button>
-                <Button size="sm" variant="outline" disabled={i === data.length - 1} onClick={() => move(i, 1)}>↓</Button>
-              </TableCell>
-              <TableCell>
-                <Input
-                  defaultValue={item.name}
-                  onBlur={(e) => {
-                    const value = e.target.value.trim();
-                    if (value && value !== item.name) renameMutation.mutate({ id: item.id, name: value });
-                  }}
-                />
-              </TableCell>
-              {showRequiresProjectCode && (
-                <TableCell>
-                  <input
-                    type="checkbox"
-                    checked={item.requiresProjectCode ?? false}
-                    onChange={(e) =>
-                      requiresProjectCodeMutation.mutate({ id: item.id, requiresProjectCode: e.target.checked })
-                    }
-                  />
+          </TableHeader>
+          <TableBody>
+            {data.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={columnCount} className="text-center text-muted-foreground">
+                  尚未設定任何項目
                 </TableCell>
-              )}
-              <TableCell>
-                <span className={item.active ? "text-green-600" : "text-muted-foreground"}>
-                  {item.active ? "啟用中" : "已停用"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <Button
-                  size="sm"
-                  variant={item.active ? "destructive" : "outline"}
-                  onClick={() => toggleActiveMutation.mutate({ id: item.id, active: item.active })}
-                >
-                  {item.active ? "停用" : "重新啟用"}
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              </TableRow>
+            )}
+            <SortableContext items={data.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+              {data.map((item) => (
+                <SortableTableRow key={item.id} id={item.id}>
+                  <TableCell>
+                    <Input
+                      defaultValue={item.name}
+                      onBlur={(e) => {
+                        const value = e.target.value.trim();
+                        if (value && value !== item.name) renameMutation.mutate({ id: item.id, name: value });
+                      }}
+                    />
+                  </TableCell>
+                  {showRequiresProjectCode && (
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={item.requiresProjectCode ?? false}
+                        onChange={(e) =>
+                          requiresProjectCodeMutation.mutate({ id: item.id, requiresProjectCode: e.target.checked })
+                        }
+                      />
+                    </TableCell>
+                  )}
+                  <TableCell>
+                    <span className={item.active ? "text-green-600" : "text-muted-foreground"}>
+                      {item.active ? "啟用中" : "已停用"}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant={item.active ? "destructive" : "outline"}
+                      onClick={() => toggleActiveMutation.mutate({ id: item.id, active: item.active })}
+                    >
+                      {item.active ? "停用" : "重新啟用"}
+                    </Button>
+                  </TableCell>
+                </SortableTableRow>
+              ))}
+            </SortableContext>
+          </TableBody>
+        </Table>
+      </DndContext>
       <div className="flex gap-2">
         <Input
           value={newName}
