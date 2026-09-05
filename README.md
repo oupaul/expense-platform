@@ -191,6 +191,10 @@ server {
         proxy_pass http://127.0.0.1:4000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        # nginx 預設單一請求本文只有 1MB，手機拍照上傳憑證常常好幾 MB，
+        # 沒調大的話上傳會在 nginx 這層被擋掉(甚至看起來像卡住，前端收不到明確的錯誤)。
+        # 後端 multer 限制單檔 10MB、一次最多 5 個檔案，這裡抓寬一點含 multipart 額外開銷。
+        client_max_body_size 60M;
     }
 
     location / {
