@@ -2,11 +2,12 @@ import { useState } from "react";
 import { PlatformLoginForm } from "@/components/platform/PlatformLoginForm";
 import { PlatformDashboard } from "@/components/platform/PlatformDashboard";
 import { PlatformAdminManager } from "@/components/platform/PlatformAdminManager";
+import { BackupSettings } from "@/components/platform/BackupSettings";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import { Button } from "@/components/ui/button";
 import { usePlatformAuth } from "@/hooks/usePlatformAuth";
 
-type Tab = "companies" | "admins" | "password";
+type Tab = "companies" | "admins" | "backup" | "password";
 
 // 服務供應商的平台管理入口，走 /platform 這個路徑，跟租戶使用者的一般登入(LoginForm)
 // 完全分開一套畫面、一組 token，不會混在一起。
@@ -36,6 +37,14 @@ export function PlatformApp() {
           平台管理者
         </button>
         <button
+          onClick={() => setTab("backup")}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+            tab === "backup" ? "bg-white text-slate-900" : "text-slate-300 hover:bg-slate-800"
+          }`}
+        >
+          備份
+        </button>
+        <button
           onClick={() => setTab("password")}
           className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
             tab === "password" ? "bg-white text-slate-900" : "text-slate-300 hover:bg-slate-800"
@@ -50,6 +59,7 @@ export function PlatformApp() {
       </div>
       {tab === "companies" && <PlatformDashboard token={auth.token} />}
       {tab === "admins" && <PlatformAdminManager token={auth.token} currentAdminId={auth.admin.id} />}
+      {tab === "backup" && <BackupSettings token={auth.token} />}
       {tab === "password" && (
         <div className="p-8">
           <ChangePasswordForm token={auth.token} path="/platform-auth/change-password" />

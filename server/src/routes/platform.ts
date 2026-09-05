@@ -1,8 +1,13 @@
+import path from "node:path";
+import fs from "node:fs";
 import { Router } from "express";
 import { z } from "zod";
+import cron from "node-cron";
 import { prisma } from "../db.js";
 import { hashPassword } from "../auth/password.js";
+import { encryptSecret } from "../auth/nasSecret.js";
 import { requireAuth, requirePlatformAdmin } from "../middleware/auth.js";
+import { BACKUP_DIR, rescheduleBackupJob, runBackupNow, testNasConnection } from "../services/backupScheduler.js";
 
 // 平台管理者建立/檢視租戶(公司)的路由，只有服務供應商自己能用。
 export const platformRouter = Router();
@@ -207,4 +212,130 @@ platformRouter.post("/admins/:id/reset-password", async (req, res) => {
   const passwordHash = await hashPassword(parsed.data.newPassword);
   await prisma.platformAdmin.update({ where: { id: admin.id }, data: { passwordHash } });
   res.status(204).end();
+});
+
+// GET /api/platform/backup-config
+// 絕對不回傳解密後的私鑰內容，只回「有沒有設定」，前端沒有理由需要看到私鑰本身。
+platformRouter.get("/backup-config", async (_req, res) => {
+  const config = await prisma.backupConfig.findUnique({ where: { id: "singleton" } });
+  res.json({
+    enabled: config?.enabled ?? false,
+    cronExpression: config?.cronExpression ?? "0 3 * * *",
+    retentionDays: config?.retentionDays ?? 14,
+    nasEnabled: config?.nasEnabled ?? false,
+    nasHost: config?.nasHost ?? "",
+    nasPort: config?.nasPort ?? 22,
+    nasUsername: config?.nasUsername ?? "",
+    nasRemotePath: config?.nasRemotePath ?? "",
+    hasNasPrivateKey: !!config?.nasPrivateKeyEnc,
+    lastRunAt: config?.lastRunAt ?? null,
+    lastRunStatus: config?.lastRunStatus ?? null,
+    lastRunMessage: config?.lastRunMessage ?? null,
+  });
+});
+
+const backupConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  cronExpression: z.string().optional(),
+  retentionDays: z.number().int().min(1).max(365).optional(),
+  nasEnabled: z.boolean().optional(),
+  nasHost: z.string().optional(),
+  nasPort: z.number().int().min(1).max(65535).optional(),
+  nasUsername: z.string().optional(),
+  nasRemotePath: z.string().optional(),
+  // 沒帶這個欄位代表沿用現有的私鑰(例如只是改排程時間，不想每次都要重貼一次私鑰)。
+  nasPrivateKey: z.string().optional(),
+});
+
+// PUT /api/platform/backup-config
+platformRouter.put("/backup-config", async (req, res) => {
+  const parsed = backupConfigSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  if (parsed.data.cronExpression && !cron.validate(parsed.data.cronExpression)) {
+    return res.status(400).json({ error: "cron 表達式格式不正確" });
+  }
+
+  const { nasPrivateKey, ...rest } = parsed.data;
+  await prisma.backupConfig.upsert({
+    where: { id: "singleton" },
+    update: {
+      ...rest,
+      ...(nasPrivateKey ? { nasPrivateKeyEnc: encryptSecret(nasPrivateKey) } : {}),
+    },
+    create: {
+      id: "singleton",
+      ...rest,
+      ...(nasPrivateKey ? { nasPrivateKeyEnc: encryptSecret(nasPrivateKey) } : {}),
+    },
+  });
+
+  await rescheduleBackupJob();
+  res.status(204).end();
+});
+
+// POST /api/platform/backup-config/run-now
+// 手動立刻跑一次，不用等排程時間到——設定完 NAS 想馬上確認整個流程真的沒問題時很有用。
+platformRouter.post("/backup-config/run-now", async (_req, res) => {
+  const result = await runBackupNow();
+  res.json(result);
+});
+
+const testNasSchema = z.object({
+  nasHost: z.string().min(1),
+  nasPort: z.number().int().min(1).max(65535).default(22),
+  nasUsername: z.string().min(1),
+  nasRemotePath: z.string().min(1),
+  // 測試連線時如果沒帶新私鑰，就用資料庫裡已經存的那把(方便只改路徑之類的設定就重測)。
+  nasPrivateKey: z.string().optional(),
+});
+
+// POST /api/platform/backup-config/test-nas
+platformRouter.post("/backup-config/test-nas", async (req, res) => {
+  const parsed = testNasSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  let nasPrivateKeyEnc: string | undefined;
+  if (parsed.data.nasPrivateKey) {
+    nasPrivateKeyEnc = encryptSecret(parsed.data.nasPrivateKey);
+  } else {
+    const existing = await prisma.backupConfig.findUnique({ where: { id: "singleton" } });
+    nasPrivateKeyEnc = existing?.nasPrivateKeyEnc ?? undefined;
+  }
+  if (!nasPrivateKeyEnc) {
+    return res.status(400).json({ error: "尚未設定 SSH 私鑰" });
+  }
+
+  const result = await testNasConnection({ ...parsed.data, nasPrivateKeyEnc });
+  res.json(result);
+});
+
+// GET /api/platform/backups
+// 列出本機備份目錄的檔案(名稱/大小/時間)。NAS 是用 --delete 鏡像同步，內容跟本機一致，
+// 不用另外開一支 SSH 進 NAS 列檔案的邏輯。
+platformRouter.get("/backups", async (_req, res) => {
+  if (!fs.existsSync(BACKUP_DIR)) return res.json([]);
+  const files = fs
+    .readdirSync(BACKUP_DIR)
+    .map((filename) => {
+      const stat = fs.statSync(path.join(BACKUP_DIR, filename));
+      return { filename, size: stat.size, createdAt: stat.mtime };
+    })
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  res.json(files);
+});
+
+// 檔名只能是 backup.sh 實際會產生的那三種格式，避免任何路徑穿越或讀取備份目錄以外的檔案。
+const SAFE_BACKUP_FILENAME = /^(db-[\d-]+\.sql\.gz|env-backup-[\d-]+|uploads-[\d-]+\.tar\.gz)$/;
+
+// GET /api/platform/backups/:filename
+platformRouter.get("/backups/:filename", (req, res) => {
+  if (!SAFE_BACKUP_FILENAME.test(req.params.filename)) {
+    return res.status(400).json({ error: "檔名格式不正確" });
+  }
+  const filePath = path.join(BACKUP_DIR, req.params.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "找不到備份檔案" });
+  res.download(filePath);
 });

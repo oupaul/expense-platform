@@ -280,53 +280,49 @@ ls /srv/backups/expense-platform/
 是為了 cron 執行失敗時有地方可以查，不然 cron 的輸出預設只會寄 email(如果主機根本沒設定寄信，
 失敗了也不會有任何提示)。之後可以定期(例如每週)瞄一下這個 log 檔確認備份持續正常執行。
 
+**手動排 cron 是最基本的做法。** 如果你是平台管理者，登入 `/platform` 後台的「備份」分頁可以：
+- 用時間選擇器視覺化設定「每天幾點自動備份」(不用自己寫 cron 表達式，想寫也可以切到進階模式)、保留天數
+- 開啟「同步備份到遠端 NAS」，用 SSH/rsync 把備份鏡像一份到你自己的 NAS(私鑰加密後存在資料庫裡，
+  API 絕對不會把私鑰內容回傳到瀏覽器)——設定完可以按「測試連線」馬上確認 host/路徑/金鑰有沒有填錯
+- 「立即備份一次」不用等排程時間到就能馬上跑一次、確認整個流程真的沒問題
+- 「備份清單」可以直接在網頁上看有哪些備份、下載下來
+
+這個 UI 背後就是同一支 `backup.sh`，由 API server 內建的排程器(`node-cron`)在時間到的時候呼叫，
+設定改了立刻生效、不用重啟服務。
+
 ---
 
 ## 還原
 
-### 還原資料庫
+**還原是刻意設計成需要人在鍵盤前手動執行的操作，平台後台沒有「一鍵還原」的按鈕。**
+原因是還原會直接覆蓋掉整個資料庫、影響全部租戶的資料，一旦選錯備份或誤觸就無法復原；
+真的要做的話理論上也該先停掉 API 服務，那代表網頁要有能力控制 systemd，等於要給這個
+應用程式 `sudo` 等級的權限，這個風險不划算。
+
+先到 `/platform` 後台的「備份」分頁看你要還原到哪個時間點(或直接 `ls /srv/backups/expense-platform/`)，
+記下檔名裡的 timestamp(例如 `db-20260101-030000.sql.gz` 的 timestamp 是 `20260101-030000`)，
+然後用 [`server/scripts/restore.sh`](server/scripts/restore.sh)：
 
 ```bash
-# 先確認要還原到哪個資料庫，這個操作會覆蓋現有資料，動手前務必確認
-sudo systemctl stop expense-platform-api   # 停 API，避免還原過程中有寫入
-
-# 解壓縮並還原（會清掉目標資料庫原本的內容再灌回去）
-gunzip -c /srv/backups/expense-platform/db-20260101.sql.gz | psql -U expense_app -h localhost expense_platform_prod
-
-sudo systemctl start expense-platform-api
+cd /srv/apps/expense-platform
+bash server/scripts/restore.sh 20260101-030000
 ```
 
-如果是資料庫整個掛掉、要在新機器上重建：
+腳本會先印出警告、要求你**手動輸入資料庫名稱**確認才會繼續執行，接著自動停止 API 服務、
+還原資料庫、詢問要不要一併還原 `.env` 跟憑證附件、還原完再重新啟動服務。
 
-```bash
-sudo -u postgres psql -c "CREATE USER expense_app WITH PASSWORD '<密碼，跟備份的 .env 對應>';"
-sudo -u postgres psql -c "CREATE DATABASE expense_platform_prod OWNER expense_app;"
-gunzip -c /srv/backups/expense-platform/db-20260101.sql.gz | psql -U expense_app -h localhost expense_platform_prod
-```
-
-### 還原 `.env`
-
-```bash
-cp /srv/backups/expense-platform/env-backup-20260101 server/.env
-```
-
-還原 `.env` 之後如果 `JWT_SECRET` 跟還原前不一樣，所有使用者現有的登入 token 會失效(需要重新登入)，
-但不影響資料本身。
-
-### 還原憑證附件
-
-```bash
-tar xzf /srv/backups/expense-platform/uploads-20260101.tar.gz -C /srv/apps/expense-platform/server
-```
+還原 `.env` 的話，如果裡面的 `JWT_SECRET` 跟還原前不一樣，所有使用者現有的登入 token 會失效
+(需要重新登入)，但不影響資料本身。
 
 ### 完整重建(新主機 disaster recovery)
 
-1. 依「部署」章節的步驟 1–3 重新裝好系統套件、clone 程式碼、建立資料庫帳號
-2. 用上面的「還原資料庫」把備份的 `.sql.gz` 灌回新建立的資料庫
-3. 用上面的「還原 `.env`」把備份的 `.env` 複製回 `server/.env`
-4. 用上面的「還原憑證附件」把備份的 `uploads-*.tar.gz` 解回 `server/uploads/`
-5. 執行「部署」步驟 4(建置)、5(systemd)、6(nginx)、7(防火牆)
-6. 確認 `systemctl status expense-platform-api` 正常、瀏覽器打開網域能看到登入畫面
+1. 依「部署」章節的步驟 1–3 重新裝好系統套件、clone 程式碼、建立資料庫帳號(`CREATE USER` / `CREATE DATABASE`，
+   帳密要跟備份的 `.env` 對應，或還原 `.env` 後改回一致)
+2. 把備份檔案(`db-*.sql.gz`、`env-backup-*`、`uploads-*.tar.gz`)複製到新主機的 `/srv/backups/expense-platform/`
+   (例如從 NAS 上拉回來，或從舊主機複製)
+3. 跑 `bash server/scripts/restore.sh <timestamp>`，三樣都選擇還原
+4. 執行「部署」步驟 4(建置)、5(systemd)、6(nginx)、7(防火牆)
+5. 確認 `systemctl status expense-platform-api` 正常、瀏覽器打開網域能看到登入畫面
 
 ---
 

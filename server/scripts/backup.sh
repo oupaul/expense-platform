@@ -38,7 +38,11 @@ else
 fi
 
 log "備份資料庫 ($DB_NAME)..."
-PGPASSWORD="$DB_PASS" pg_dump -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" "$DB_NAME" | gzip > "$BACKUP_DIR/db-$TIMESTAMP.sql.gz"
+# --clean --if-exists 讓備份檔案本身包含 DROP ... IF EXISTS，還原時才能真的覆蓋掉
+# 目標資料庫既有的資料表——沒有這兩個參數的話，restore.sh 對著「還在的」資料庫還原時，
+# 每張表都會撞到「already exists」/「duplicate key」，psql 預設不會因為出錯就中止，
+# 於是整個還原動作看起來「跑完了」、結束碼還是 0，但實際上一筆資料都沒真的還原進去。
+PGPASSWORD="$DB_PASS" pg_dump --clean --if-exists -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" "$DB_NAME" | gzip > "$BACKUP_DIR/db-$TIMESTAMP.sql.gz"
 
 log "備份 .env..."
 cp "$ENV_FILE" "$BACKUP_DIR/env-backup-$TIMESTAMP"

@@ -28,3 +28,24 @@ export interface PlatformAdminItem {
   active: boolean;
   createdAt: string;
 }
+
+export interface BackupConfig {
+  enabled: boolean;
+  cronExpression: string;
+  retentionDays: number;
+  nasEnabled: boolean;
+  nasHost: string;
+  nasPort: number;
+  nasUsername: string;
+  nasRemotePath: string;
+  hasNasPrivateKey: boolean;
+  lastRunAt: string | null;
+  lastRunStatus: "success" | "failed" | null;
+  lastRunMessage: string | null;
+}
+
+export interface BackupFileItem {
+  filename: string;
+  size: number;
+  createdAt: string;
+}

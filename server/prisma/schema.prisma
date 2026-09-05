@@ -20,6 +20,31 @@ model PlatformAdmin {
   createdAt    DateTime @default(now())
 }
 
+// 平台層級的備份排程設定——整個平台共用一筆(不是每租戶各一份)，因為備份的是共用的
+// 資料庫跟 uploads/，不是單一租戶的資料。用固定 id "singleton" 確保永遠只有一筆。
+model BackupConfig {
+  id             String  @id @default("singleton")
+  enabled        Boolean @default(false)
+  cronExpression String  @default("0 3 * * *")
+  retentionDays  Int     @default(14)
+
+  // NAS 遠端備份(選填)：用 SSH + rsync 鏡像同步本機備份目錄。
+  nasEnabled    Boolean @default(false)
+  nasHost       String?
+  nasPort       Int     @default(22)
+  nasUsername   String?
+  nasRemotePath String?
+  // SSH 私鑰用跟 JWT_SECRET 同源衍生的金鑰加密後才存進來(AES-256-GCM)，
+  // API 絕對不會把解密後的內容回傳給前端。
+  nasPrivateKeyEnc String? @db.Text
+
+  lastRunAt      DateTime?
+  lastRunStatus  String? // "success" / "failed"
+  lastRunMessage String?   @db.Text
+
+  updatedAt DateTime @updatedAt
+}
+
 // ── 租戶(公司) ─────────────────────────────────────
 // 品牌識別 + 表單結構開關都放在這裡，因為這些是「一家公司改一次、很少變動」的設定，
 // 不需要像部門/費用類別那樣做成獨立的可增刪列表。
