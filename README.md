@@ -200,6 +200,22 @@ server {
     location / {
         try_files $uri /index.html;
     }
+
+    # index.html 檔名不會變，每次部署完內容卻會變(裡面引用的 JS/CSS 檔名帶內容雜湊，
+    # 每次 build 都不一樣)。沒有明確設定的話，瀏覽器或前面的 CDN(例如 Cloudflare)可能會
+    # 用預設的啟發式規則快取 index.html，之後部署新版本，使用者拿到的還是快取住的舊
+    # index.html，裡面指到的 JS 檔案在新的 dist/ 裡早就不存在了——看起來就像「更新了
+    # 但功能沒出現」。強制每次都跟伺服器確認新鮮度，檔案本身很小，這樣做幾乎沒有成本。
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    # assets/ 底下的檔名帶內容雜湊(例如 index-Df6863Lu.js)，內容一變檔名就會跟著變，
+    # URL 不變就代表內容沒變過，這種檔案快取多久都安全，讓重複造訪的使用者不用每次
+    # 都重新下載整包前端。
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
 }
 ```
 
@@ -208,6 +224,12 @@ sudo ln -s /etc/nginx/sites-available/expense-platform /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+**如果網域前面還有 Cloudflare 之類的 CDN**：CDN 自己也可能有一套獨立於上面 nginx 設定的
+快取規則，尤其如果曾經手動開過「Cache Everything」之類的規則，會直接忽略 origin 送出的
+`Cache-Control`。設定完上面的 nginx 規則後，建議到 Cloudflare 後台把 `index.html` 這個
+網址(或乾脆整個網域)的快取清一次，之後有這組 nginx 規則兜底，之後部署新版本才不會再卡在
+CDN 快取住的舊版本上。
 
 正式上線建議加 HTTPS(例如 `certbot --nginx`)，這裡先略過。
 
