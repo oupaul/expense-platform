@@ -25,6 +25,9 @@ authRouter.post("/login", async (req, res) => {
   if (!company) {
     return res.status(401).json({ error: "帳號或密碼錯誤" });
   }
+  if (!company.active) {
+    return res.status(403).json({ error: "此租戶已被停用，請聯絡服務供應商" });
+  }
 
   const user = await prisma.user.findUnique({
     where: { companyId_email: { companyId: company.id, email } },

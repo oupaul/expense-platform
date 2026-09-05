@@ -30,6 +30,10 @@ model Company {
   nameEn    String?
   logoUrl   String?
 
+  // 平台管理者停用租戶用——合約到期/欠費時整家公司都不能登入，但資料保留。
+  // 只在登入當下檢查，已經登入、token 還沒過期(8 小時)的使用者不會被立刻踢掉。
+  active Boolean @default(true)
+
   // 品牌配色 —— 對應前端 CSS variable，預設值沿用參考版型的深色 header + 藍紫漸層配色
   primaryColor   String @default("#3498db")
   headerBgColor  String @default("#2c3e50")
