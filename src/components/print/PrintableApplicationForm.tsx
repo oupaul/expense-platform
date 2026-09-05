@@ -25,6 +25,7 @@ interface Props {
   requestedPaymentDate?: string;
   total: number;
   approvalStages: ApprovalStageConfig[];
+  applicantSignature?: string | null;
 }
 
 const ROWS_PER_PAGE = 5;
@@ -54,6 +55,7 @@ export function PrintableApplicationForm(props: Props) {
     requestedPaymentDate,
     total,
     approvalStages,
+    applicantSignature,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,7 +63,10 @@ export function PrintableApplicationForm(props: Props) {
   const isPaginated = pages.length > 1;
   usePrintFit(containerRef, !isPaginated);
 
-  const signatureBoxes = [{ id: "applicant", label: "申請人" }, ...approvalStages.map((s) => ({ id: s.id, label: s.label }))];
+  const signatureBoxes = [
+    { id: "applicant", label: "申請人", signature: applicantSignature },
+    ...approvalStages.map((s) => ({ id: s.id, label: s.label, signature: undefined as string | null | undefined })),
+  ];
 
   const renderHeader = () => (
     <div className="flex items-center justify-between px-6 py-4 text-white" style={{ backgroundColor: branding.headerBgColor }}>
@@ -130,8 +135,15 @@ export function PrintableApplicationForm(props: Props) {
         <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${signatureBoxes.length}, minmax(0, 1fr))` }}>
           {signatureBoxes.map((box) => (
             <div key={box.id} className="rounded border border-gray-300 p-3 text-center">
-              <div className="mb-6 text-sm font-medium">{box.label}</div>
-              <div className="border-t border-dashed border-gray-400 pt-1 text-xs text-gray-400">簽名處</div>
+              <div className="mb-1 text-sm font-medium">{box.label}</div>
+              {box.signature ? (
+                <img src={box.signature} alt={`${box.label}簽名`} className="mx-auto h-10 object-contain" />
+              ) : (
+                <div className="h-10" />
+              )}
+              <div className="border-t border-dashed border-gray-400 pt-1 text-xs text-gray-400">
+                {box.signature ? "" : "簽名處"}
+              </div>
             </div>
           ))}
         </div>

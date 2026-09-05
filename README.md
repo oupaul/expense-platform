@@ -335,3 +335,13 @@ cp /srv/backups/expense-platform/env-backup-20260101 server/.env
 - **`prisma migrate deploy` 失敗**：先看錯誤訊息是不是 migration 檔跟資料庫現況不一致(例如有人手動改過
   資料庫結構)，必要時要用 `npx prisma migrate resolve` 手動標記，不要在正式環境用 `migrate reset`(會清空
   資料庫)。
+
+---
+
+## 授權(License)
+
+本專案採用 [GNU Affero General Public License v3.0](LICENSE)(AGPL-3.0)授權。
+
+簡單來說：可以自由使用、修改、部署本專案，但如果修改後的版本透過網路提供服務給他人使用，
+必須依 AGPL-3.0 的條款公開該版本的原始碼(包含僅透過網路存取、未實際散布程式的情況)。
+完整條款請見 [LICENSE](LICENSE)。

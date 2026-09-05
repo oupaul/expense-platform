@@ -6,11 +6,15 @@ import type { AuthState } from "@/types/auth";
 import type { ApplicationListItem } from "@/types/application";
 import { Fragment, useState } from "react";
 import { ApplicationDetail } from "@/components/ApplicationDetail";
+import { SignaturePad } from "@/components/SignaturePad";
 
 export function PendingApprovals({ auth }: { auth: AuthState }) {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  // 每張申請單各自的簽核簽名，用 id 存放；核准/駁回前一定要先簽名。
+  const [signatures, setSignatures] = useState<Record<string, string | null>>({});
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["applications", auth.user.companyId, "pending"],
@@ -21,16 +25,26 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
   });
 
   const decide = async (id: string, action: "approve" | "reject") => {
+    const signatureImage = signatures[id];
+    if (!signatureImage) {
+      setActionError("請先簽名再核准或駁回");
+      return;
+    }
     setActionError(null);
+    setDecidingId(id);
     try {
       await apiFetch(`/companies/${auth.user.companyId}/applications/${id}/decision`, {
         method: "POST",
         token: auth.token,
-        body: { action },
+        body: { action, signatureImage },
       });
       queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
+      setSignatures((prev) => ({ ...prev, [id]: null }));
+      setExpandedId(null);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "操作失敗");
+    } finally {
+      setDecidingId(null);
     }
   };
 
@@ -64,18 +78,36 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
                   <TableCell>{new Date(app.applicationDate).toLocaleDateString("zh-TW")}</TableCell>
                   <TableCell>{app.purpose ?? "-"}</TableCell>
                   <TableCell>{app.totalAmountTWD}</TableCell>
-                  <TableCell className="space-x-2">
+                  <TableCell>
                     <Button size="sm" variant="outline" onClick={() => setExpandedId(expanded ? null : app.id)}>
-                      {expanded ? "收合" : "查看明細"}
+                      {expanded ? "收合" : "查看明細並簽核"}
                     </Button>
-                    <Button size="sm" onClick={() => decide(app.id, "approve")}>核准</Button>
-                    <Button size="sm" variant="destructive" onClick={() => decide(app.id, "reject")}>駁回</Button>
                   </TableCell>
                 </TableRow>
                 {expanded && (
                   <TableRow>
                     <TableCell colSpan={6} className="p-0">
                       <ApplicationDetail auth={auth} applicationId={app.id} />
+                      <div className="space-y-3 border-t bg-slate-50 p-4">
+                        <SignaturePad
+                          value={signatures[app.id] ?? null}
+                          onChange={(v) => setSignatures((prev) => ({ ...prev, [app.id]: v }))}
+                          label="簽核簽名(核准或駁回前必填)"
+                        />
+                        <div className="flex gap-2">
+                          <Button size="sm" disabled={decidingId === app.id || !signatures[app.id]} onClick={() => decide(app.id, "approve")}>
+                            核准
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={decidingId === app.id || !signatures[app.id]}
+                            onClick={() => decide(app.id, "reject")}
+                          >
+                            駁回
+                          </Button>
+                        </div>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )}

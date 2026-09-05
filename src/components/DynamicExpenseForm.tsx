@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 import { BrandingProvider } from "@/components/BrandingProvider";
 import { ApprovalChain } from "@/components/ApprovalChain";
+import { SignaturePad } from "@/components/SignaturePad";
 import { apiFetch, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import { ALL_CURRENCIES } from "@/lib/currencies";
@@ -35,6 +36,7 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
   const [applicationDate, setApplicationDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [payeeName, setPayeeName] = useState("");
   const [requestedPaymentDate, setRequestedPaymentDate] = useState("");
+  const [applicantSignature, setApplicantSignature] = useState<string | null>(null);
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" | "success" | "error"; message?: string }>({
     status: "idle",
   });
@@ -96,6 +98,10 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
       setSubmitState({ status: "error", message: "有費用明細的專案編號未填寫或超過 10 碼，請檢查標紅的欄位" });
       return;
     }
+    if (!applicantSignature) {
+      setSubmitState({ status: "error", message: "請先簽名再送出申請單" });
+      return;
+    }
     setSubmitState({ status: "submitting" });
     try {
       await apiFetch(`/companies/${auth.user.companyId}/applications`, {
@@ -107,6 +113,7 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
           applicationDate,
           payeeName: optionalFields.payeeInfo ? payeeName || undefined : undefined,
           requestedPaymentDate: optionalFields.requestedPaymentDate ? requestedPaymentDate || undefined : undefined,
+          applicantSignature,
           items: rows
             .filter((r) => r.categoryId && Number(r.amount) > 0)
             .map((r) => ({
@@ -124,6 +131,7 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
       setRows([emptyRow()]);
       setPayeeName("");
       setRequestedPaymentDate("");
+      setApplicantSignature(null);
     } catch (err) {
       setSubmitState({ status: "error", message: err instanceof ApiError ? err.message : "送出失敗" });
     }
@@ -146,6 +154,7 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
           requestedPaymentDate={requestedPaymentDate}
           total={total}
           approvalStages={approvalStages}
+          applicantSignature={applicantSignature}
         />
       </div>
       <div className="min-h-screen bg-slate-100 p-5 print:hidden">
@@ -312,7 +321,12 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
             </div>
 
             {/* 簽核欄：關卡數量與職稱完全來自 approvalStages，不寫死幾關 */}
-            <ApprovalChain stages={approvalStages} />
+            <ApprovalChain stages={approvalStages} applicantSignature={applicantSignature} />
+
+            {/* 送出前必須完成簽名：手寫(滑鼠/觸控板/觸控螢幕皆可)或上傳簽名檔 */}
+            <div className="rounded border border-dashed border-slate-300 p-4">
+              <SignaturePad value={applicantSignature} onChange={setApplicantSignature} label="申請人簽名(送出前必填)" />
+            </div>
 
             <div className="flex items-center justify-end gap-3">
               {submitState.status === "success" && <p className="text-sm text-green-600">{submitState.message}</p>}
@@ -328,7 +342,8 @@ export function DynamicExpenseForm({ auth }: { auth: AuthState }) {
                   !expenseNatureId ||
                   total <= 0 ||
                   (multiCurrencyEnabled && rows.some((r) => r.categoryId && Number(r.amount) > 0 && amountInTWD(r) === null)) ||
-                  validRows.some(isProjectCodeInvalid)
+                  validRows.some(isProjectCodeInvalid) ||
+                  !applicantSignature
                 }
               >
                 {submitState.status === "submitting" ? "送出中…" : "送出申請"}

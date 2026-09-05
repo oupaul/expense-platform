@@ -15,7 +15,8 @@ import { usersRouter } from "./routes/users.js";
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// 預設 100kb 對簽名圖檔(base64)太小，手寫簽名/上傳的簽名檔都要能塞得下。
+app.use(express.json({ limit: "5mb" }));
 app.use(pinoHttp());
 
 app.use("/api/auth", authRouter);

@@ -164,6 +164,9 @@ model ExpenseApplication {
   totalAmountTWD Decimal @default(0) @db.Decimal(12, 2)
   status         String  @default("pending") // pending / approved / rejected
 
+  // 申請人送出時的電子簽名(手寫或上傳)，存 base64 data URL。
+  applicantSignature String? @db.Text
+
   items           ExpenseItem[]
   approvalRecords ApprovalRecord[]
 
@@ -208,6 +211,8 @@ model ApprovalRecord {
   status    String    @default("waiting") // waiting / approved / rejected
   comment   String?
   signedAt  DateTime?
+  // 簽核人核准/駁回當下的電子簽名(手寫或上傳)，存 base64 data URL。
+  signatureImage String? @db.Text
 
   @@unique([applicationId, stageId])
   @@index([applicationId])

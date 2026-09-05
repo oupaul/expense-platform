@@ -9,6 +9,14 @@ import { ALL_CURRENCIES } from "../constants.js";
 type CompanyScoped = Request<{ companyId: string }>;
 type CompanyScopedWithId = Request<{ companyId: string; id: string }>;
 
+// 簽名圖檔存成 base64 data URL；用最基本的格式檢查擋掉亂塞的字串，
+// 大小上限搭配 index.ts 的 express.json({ limit: "5mb" })，避免單一簽名把 payload 撐爆。
+const signatureSchema = z
+  .string()
+  .min(1, "請先簽名再送出")
+  .max(2_000_000, "簽名圖檔過大，請重新簽名或使用較小的圖片")
+  .regex(/^data:image\/(png|jpeg|jpg|webp);base64,/, "簽名格式不正確");
+
 export const applicationsRouter = Router({ mergeParams: true });
 applicationsRouter.use(requireAuth, requireSameCompany);
 
@@ -31,6 +39,7 @@ const createSchema = z.object({
   payeeBankInfo: z.record(z.string()).optional(),
   requestedPaymentDate: z.coerce.date().optional(),
   items: z.array(itemSchema).min(1),
+  applicantSignature: signatureSchema,
 });
 
 // POST /api/companies/:companyId/applications
@@ -104,6 +113,7 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
       payeeName: data.payeeName,
       payeeBankInfo: data.payeeBankInfo,
       requestedPaymentDate: data.requestedPaymentDate,
+      applicantSignature: data.applicantSignature,
       totalAmountTWD,
       items: {
         create: itemsWithConversion.map((item) => ({
@@ -188,6 +198,7 @@ applicationsRouter.get("/:id", async (req: CompanyScopedWithId, res) => {
 const decisionSchema = z.object({
   action: z.enum(["approve", "reject"]),
   comment: z.string().optional(),
+  signatureImage: signatureSchema,
 });
 
 // POST /api/companies/:companyId/applications/:id/decision
@@ -215,7 +226,7 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
     return res.status(403).json({ error: "還沒輪到你這個角色簽核" });
   }
 
-  const { action, comment } = parsed.data;
+  const { action, comment, signatureImage } = parsed.data;
   const isLastStage = currentRecord.stage.stageOrder === application.approvalRecords.length - 1;
 
   await prisma.$transaction([
@@ -225,6 +236,7 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
         status: action === "approve" ? "approved" : "rejected",
         approverId: auth.userId,
         comment,
+        signatureImage,
         signedAt: new Date(),
       },
     }),

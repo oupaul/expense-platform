@@ -30,6 +30,7 @@ export interface ApprovalRecordDetail {
   status: string;
   comment: string | null;
   signedAt: string | null;
+  signatureImage: string | null;
   stage: { stageOrder: number; roleKey: string; label: string };
   approver: { name: string } | null;
 }
@@ -46,6 +47,7 @@ export interface ApplicationDetail {
   applicant: { name: string; email: string };
   department: { name: string };
   expenseNature: { name: string };
+  applicantSignature: string | null;
   items: ApplicationItemDetail[];
   approvalRecords: ApprovalRecordDetail[];
 }

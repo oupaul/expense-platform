@@ -33,6 +33,13 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
         <div><span className="text-muted-foreground">申請日期：</span>{new Date(data.applicationDate).toLocaleDateString("zh-TW")}</div>
       </div>
 
+      {data.applicantSignature && (
+        <div className="text-sm">
+          <span className="mb-1 block text-muted-foreground">申請人簽名：</span>
+          <img src={data.applicantSignature} alt="申請人簽名" className="h-12 rounded border bg-white object-contain p-1" />
+        </div>
+      )}
+
       {data.purpose && <div className="text-sm"><span className="text-muted-foreground">用途說明：</span>{data.purpose}</div>}
       {data.payeeName && <div className="text-sm"><span className="text-muted-foreground">受款人：</span>{data.payeeName}</div>}
       {data.requestedPaymentDate && (
@@ -73,7 +80,7 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
         <h4 className="mb-2 text-sm font-semibold">簽核進度</h4>
         <div className="space-y-1">
           {data.approvalRecords.map((record) => (
-            <div key={record.id} className="flex items-center gap-2 text-sm">
+            <div key={record.id} className="flex flex-wrap items-center gap-2 text-sm">
               <span
                 className={
                   record.status === "approved"
@@ -90,6 +97,9 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
                 <span className="text-muted-foreground">{new Date(record.signedAt).toLocaleString("zh-TW")}</span>
               )}
               {record.comment && <span className="text-muted-foreground">備註：{record.comment}</span>}
+              {record.signatureImage && (
+                <img src={record.signatureImage} alt={`${record.stage.label}簽名`} className="h-8 rounded border bg-white object-contain p-1" />
+              )}
             </div>
           ))}
         </div>
