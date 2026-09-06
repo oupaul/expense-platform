@@ -37,7 +37,7 @@ interface Props {
   signatureBoxes: PrintableSignatureBox[];
 }
 
-const ROWS_PER_PAGE = 5;
+const ROWS_PER_PAGE = 7;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   if (arr.length === 0) return [[]];
@@ -47,8 +47,8 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 // 列印/PDF 輸出版面 —— 沿用參考版型(舊 hzt-expense 系統)的列印原則：
-// 超過 5 筆費用明細就分頁，每頁重複公司頁首，只有最後一頁接合計/受款人/簽核欄；
-// 5 筆以內則整體縮放塞進一張 A4(見 usePrintFit)。畫面本身平常是隱藏的，只有
+// 超過 7 筆費用明細就分頁，每頁重複公司頁首，只有最後一頁接合計/受款人/簽核欄；
+// 7 筆以內則整體縮放塞進一張 A4(見 usePrintFit)。畫面本身平常是隱藏的，只有
 // 瀏覽器進入列印模式(.print-block 由 Tailwind 的 `print:` 變體控制)才會顯示。
 export function PrintableApplicationForm(props: Props) {
   const {
