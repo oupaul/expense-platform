@@ -29,6 +29,34 @@ function emptyRow(): ExpenseRowState {
   return { categoryId: "", description: "", amount: "", currency: "TWD" };
 }
 
+// 暫存草稿只存表單欄位本身，不含憑證附件——附件在還沒有申請單 id 前是瀏覽器記憶體裡的
+// File 物件(參照 stagedAttachments 上方的說明)，沒辦法序列化進 localStorage，重新整理
+// 分頁本來就會遺失，這是瀏覽器層級的限制，不是這支功能沒做完。
+interface DraftData {
+  departmentId: string;
+  expenseNatureId: string;
+  applicationDate: string;
+  payeeName: string;
+  requestedPaymentDate: string;
+  rows: ExpenseRowState[];
+  applicantSignature: string | null;
+  savedAt: string;
+}
+
+function isBlankDraft(d: Pick<DraftData, "departmentId" | "expenseNatureId" | "payeeName" | "requestedPaymentDate" | "applicantSignature" | "rows">): boolean {
+  return (
+    !d.departmentId &&
+    !d.expenseNatureId &&
+    !d.payeeName &&
+    !d.requestedPaymentDate &&
+    !d.applicantSignature &&
+    d.rows.length === 1 &&
+    !d.rows[0].categoryId &&
+    !d.rows[0].description &&
+    !d.rows[0].amount
+  );
+}
+
 interface Props {
   auth: AuthState;
   // 從「我的申請」點「編輯並重新送出」被退回的申請單進來時會帶著這個 id，
@@ -54,6 +82,94 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" | "success" | "error"; message?: string }>({
     status: "idle",
   });
+
+  // 暫存草稿只在「新建申請單」情境下運作，不套用在「編輯被退回的申請單」——那個情境
+  // 已經有自己的「用伺服器上既有內容預填」流程(見下面 editApplicationId 的 useEffect)，
+  // 混在一起容易搞不清楚畫面上的內容到底是哪裡來的。草稿依 companyId+使用者 id 分開存，
+  // 避免同一台瀏覽器給不同人共用時看到別人存到一半的內容。
+  const draftKey = `expense-draft-${auth.user.companyId}-${auth.user.id}`;
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [draftRestoredBanner, setDraftRestoredBanner] = useState(false);
+  const draftRestoredRef = useRef(false);
+
+  // 送出成功後只清 localStorage 裡的草稿本身，不動欄位——handleSubmit 送出成功後會自己
+  // 決定要重置哪些欄位(部門/費用性質習慣上會保留，方便連續送好幾張同部門的申請單)，
+  // 這支只負責讓草稿存檔消失，不要越權去動表單欄位。
+  const clearDraftStorage = () => {
+    localStorage.removeItem(draftKey);
+    setDraftSavedAt(null);
+    setDraftRestoredBanner(false);
+  };
+
+  // 「清除暫存並重新開始」按鈕則相反：使用者是明確要整張表單歸零，除了清存檔，畫面上的
+  // 欄位也要真的清空，不然按鈕名稱說了「重新開始」，使用者卻還是看著剛剛還原出來的內容，
+  // 會以為按鈕沒作用。附件(stagedAttachments)不在暫存範圍內、也不清——那是使用者這次
+  // 瀏覽器工作階段自己選的檔案，跟草稿無關，清掉會讓人以為自己選錯了什麼。
+  const clearDraftAndReset = () => {
+    clearDraftStorage();
+    setRows([emptyRow()]);
+    setDepartmentId("");
+    setExpenseNatureId("");
+    setApplicationDate(new Date().toISOString().slice(0, 10));
+    setPayeeName("");
+    setRequestedPaymentDate("");
+    setApplicantSignature(null);
+  };
+
+  // 頁面一載入就檢查有沒有暫存過的草稿，有的話直接還原回表單欄位——只做這一次，
+  // 不能每次 re-render 都重跑，不然使用者自己往下改的內容會一直被存檔內容蓋回去。
+  useEffect(() => {
+    if (editApplicationId || draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as DraftData;
+      setDepartmentId(draft.departmentId);
+      setExpenseNatureId(draft.expenseNatureId);
+      setApplicationDate(draft.applicationDate);
+      setPayeeName(draft.payeeName);
+      setRequestedPaymentDate(draft.requestedPaymentDate);
+      setRows(draft.rows.length > 0 ? draft.rows : [emptyRow()]);
+      setApplicantSignature(draft.applicantSignature);
+      setDraftSavedAt(draft.savedAt);
+      setDraftRestoredBanner(true);
+    } catch {
+      // 存進去的格式如果壞掉(例如改版後欄位形狀變了)，當作沒有草稿即可，不用讓整個表單掛掉。
+      localStorage.removeItem(draftKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editApplicationId]);
+
+  // 表單內容一有變動就(debounce 過)存進 localStorage——只存欄位本身，不含憑證附件
+  // (File 物件序列化不了)。空白表單(使用者根本還沒動過)不存，不然一打開頁面就會顯示
+  // 「已自動儲存」，看起來像 bug。
+  useEffect(() => {
+    if (editApplicationId) return;
+    if (isBlankDraft({ departmentId, expenseNatureId, payeeName, requestedPaymentDate, applicantSignature, rows })) return;
+    const timer = setTimeout(() => {
+      const savedAt = new Date().toISOString();
+      const draft: DraftData = {
+        departmentId,
+        expenseNatureId,
+        applicationDate,
+        payeeName,
+        requestedPaymentDate,
+        rows,
+        applicantSignature,
+        savedAt,
+      };
+      try {
+        localStorage.setItem(draftKey, JSON.stringify(draft));
+        setDraftSavedAt(savedAt);
+      } catch {
+        // localStorage 滿了或被瀏覽器擋掉(例如無痕模式部分情況)就放棄暫存，
+        // 不影響使用者繼續填表單、正常送出。
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editApplicationId, departmentId, expenseNatureId, applicationDate, payeeName, requestedPaymentDate, rows, applicantSignature]);
 
   const editQuery = useQuery({
     queryKey: ["application-detail", auth.user.companyId, editApplicationId],
@@ -231,6 +347,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       setRequestedPaymentDate("");
       setApplicantSignature(null);
       setStagedAttachments([]);
+      if (!isEditing) clearDraftStorage();
       if (isEditing) onDoneEditing?.();
     } catch (err) {
       setSubmitState({ status: "error", message: err instanceof ApiError ? err.message : "送出失敗" });
@@ -267,6 +384,14 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               <span>正在編輯被退回的申請單，修改內容後重新簽名送出，會重新跑一次完整簽核流程。</span>
               <Button size="sm" variant="outline" onClick={resetToCreateMode}>
                 取消編輯
+              </Button>
+            </div>
+          )}
+          {!editApplicationId && draftRestoredBanner && (
+            <div className="flex items-center justify-between rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+              <span>已還原上次未送出的暫存資料(只存在這台瀏覽器裡，不含憑證附件)。</span>
+              <Button size="sm" variant="outline" onClick={clearDraftAndReset}>
+                清除暫存並重新開始
               </Button>
             </div>
           )}
@@ -461,6 +586,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
             </div>
 
             <div className="flex items-center justify-end gap-3">
+              {!editApplicationId && draftSavedAt && submitState.status === "idle" && (
+                <p className="text-xs text-muted-foreground">
+                  已自動暫存於 {new Date(draftSavedAt).toLocaleTimeString("zh-TW")}(只存在這台瀏覽器裡)
+                </p>
+              )}
               {submitState.status === "success" && <p className="text-sm text-green-600">{submitState.message}</p>}
               {submitState.status === "error" && <p className="text-sm text-destructive">{submitState.message}</p>}
               <Button variant="outline" onClick={() => window.print()}>
