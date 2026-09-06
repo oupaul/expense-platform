@@ -352,6 +352,7 @@ platformRouter.get("/notification-config", async (_req, res) => {
     smtpSecure: config?.smtpSecure ?? false,
     smtpUser: config?.smtpUser ?? "",
     smtpFrom: config?.smtpFrom ?? "",
+    smtpAllowSelfSigned: config?.smtpAllowSelfSigned ?? false,
     hasSmtpPass: !!config?.smtpPassEnc,
   });
 });
@@ -363,6 +364,7 @@ const notificationConfigSchema = z.object({
   smtpSecure: z.boolean().optional(),
   smtpUser: z.string().optional(),
   smtpFrom: z.string().optional(),
+  smtpAllowSelfSigned: z.boolean().optional(),
   // 沒帶這個欄位代表沿用現有密碼(例如只是改寄件人顯示名稱，不想每次都要重打一次密碼)。
   smtpPass: z.string().optional(),
 });
@@ -387,6 +389,7 @@ const testSmtpSchema = z.object({
   smtpPort: z.number().int().min(1).max(65535).default(587),
   smtpSecure: z.boolean().default(false),
   smtpUser: z.string().min(1),
+  smtpAllowSelfSigned: z.boolean().optional(),
   // 測試連線時如果沒帶新密碼，就用資料庫裡已經存的那組(方便只改主機/port 之類的設定就重測)。
   smtpPass: z.string().optional(),
   testRecipient: z.string().email().optional(),
@@ -415,6 +418,7 @@ platformRouter.post("/notification-config/test", async (req, res) => {
     secure: parsed.data.smtpSecure,
     user: parsed.data.smtpUser,
     passEnc,
+    allowSelfSigned: parsed.data.smtpAllowSelfSigned,
     testRecipient: parsed.data.testRecipient,
   });
   res.json(result);

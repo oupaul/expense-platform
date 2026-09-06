@@ -22,6 +22,7 @@ export function NotificationSettings({ token }: { token: string }) {
     smtpSecure: false,
     smtpUser: "",
     smtpFrom: "",
+    smtpAllowSelfSigned: false,
     smtpPass: "",
     testRecipient: "",
   });
@@ -42,6 +43,7 @@ export function NotificationSettings({ token }: { token: string }) {
       smtpSecure: config.smtpSecure,
       smtpUser: config.smtpUser,
       smtpFrom: config.smtpFrom,
+      smtpAllowSelfSigned: config.smtpAllowSelfSigned,
     }));
     setLoaded(true);
   }, [config, loaded]);
@@ -60,6 +62,7 @@ export function NotificationSettings({ token }: { token: string }) {
           smtpSecure: form.smtpSecure,
           smtpUser: form.smtpUser,
           smtpFrom: form.smtpFrom,
+          smtpAllowSelfSigned: form.smtpAllowSelfSigned,
           ...(form.smtpPass ? { smtpPass: form.smtpPass } : {}),
         },
       }),
@@ -81,6 +84,7 @@ export function NotificationSettings({ token }: { token: string }) {
           smtpPort: form.smtpPort,
           smtpSecure: form.smtpSecure,
           smtpUser: form.smtpUser,
+          smtpAllowSelfSigned: form.smtpAllowSelfSigned,
           ...(form.smtpPass ? { smtpPass: form.smtpPass } : {}),
           ...(form.testRecipient ? { testRecipient: form.testRecipient } : {}),
         },
@@ -142,6 +146,23 @@ export function NotificationSettings({ token }: { token: string }) {
           />
           使用 SSL(通常 port 465 才需要勾選；587 用 STARTTLS 不用勾)
         </label>
+
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.smtpAllowSelfSigned}
+            onChange={(e) => setForm((p) => ({ ...p, smtpAllowSelfSigned: e.target.checked }))}
+          />
+          信任自我簽署/內部憑證
+        </label>
+        {form.smtpAllowSelfSigned && (
+          <p className="text-xs text-amber-600">
+            關閉後不會驗證郵件伺服器憑證的簽發者，只建議用在公司自己架設、內部網路可信任的
+            郵件主機——如果連線出現「unable to get local issuer certificate」通常就是這個
+            原因(自我簽署或內部 CA 簽發的憑證，不在 Node.js 內建的信任清單裡)。公開的服務
+            (Gmail、Outlook 等)不需要、也不應該勾選這個選項。
+          </p>
+        )}
 
         <div>
           <Label>密碼{config.hasSmtpPass ? "(已設定，留空表示不更換)" : "(尚未設定)"}</Label>

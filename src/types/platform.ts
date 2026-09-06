@@ -51,6 +51,7 @@ export interface NotificationConfig {
   smtpSecure: boolean;
   smtpUser: string;
   smtpFrom: string;
+  smtpAllowSelfSigned: boolean;
   hasSmtpPass: boolean;
 }
 

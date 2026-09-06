@@ -24,6 +24,9 @@ export async function sendMail(opts: { to: string; subject: string; text: string
       port: config.smtpPort,
       secure: config.smtpSecure,
       auth: { user: config.smtpUser, pass: decryptSecret(config.smtpPassEnc) },
+      // 公司自己架的內部郵件伺服器很常見用自我簽署/內部 CA 憑證，預設(false)維持正常的
+      // 憑證驗證；只有平台管理者在「通知」分頁明確勾選「信任自我簽署憑證」才關掉驗證。
+      tls: { rejectUnauthorized: !config.smtpAllowSelfSigned },
     });
     await transporter.sendMail({ from: config.smtpFrom || config.smtpUser, to: opts.to, subject: opts.subject, text: opts.text });
   } catch (err) {
@@ -42,6 +45,7 @@ export async function testSmtpConnection(params: {
   secure: boolean;
   user: string;
   passEnc: string;
+  allowSelfSigned?: boolean;
   testRecipient?: string;
 }): Promise<{ ok: boolean; message: string }> {
   try {
@@ -50,6 +54,7 @@ export async function testSmtpConnection(params: {
       port: params.port,
       secure: params.secure,
       auth: { user: params.user, pass: decryptSecret(params.passEnc) },
+      tls: { rejectUnauthorized: !params.allowSelfSigned },
     });
     await transporter.verify();
     if (params.testRecipient) {

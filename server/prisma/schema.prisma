@@ -58,6 +58,10 @@ model NotificationConfig {
   smtpUser    String?
   smtpPassEnc String? @db.Text
   smtpFrom    String?
+  // 公司自己架的內部郵件伺服器很常見用自我簽署或內部 CA 簽發的憑證，Node 內建的信任清單
+  // 裡沒有那個簽發者，TLS 交握會直接失敗(unable to get local issuer certificate)。
+  // 預設關閉(維持憑證驗證)，只有明確知道對方是可信任的內部主機才勾選開啟。
+  smtpAllowSelfSigned Boolean @default(false)
 
   updatedAt DateTime @updatedAt
 }
