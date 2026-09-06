@@ -123,6 +123,14 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
 
   // 資料回來後把既有內容填進表單——用 ref 記住「已經套用過哪個 id」，避免使用者接著手動
   // 修改欄位時，因為 query 快取重新算而把手上正在改的內容蓋掉。
+  //
+  // 這裡故意多等 editQuery.isFetching 變 false 才套用：同一張草稿在這次瀏覽器工作階段
+  // 已經打開過一次的話，react-query 重新掛載時會先同步顯示上次那份「舊」快取，背景才去
+  // 重新抓最新的——如果一拿到資料(不管新舊)就馬上標記「這個 id 套用過了」，等真正最新的
+  // 資料抓回來時就會被上面那個「套用過就跳過」的判斷擋掉，畫面卡在舊快取上(實測過：
+  // 剛清空的欄位重新整理進來又跑回舊值，就是這個順序造成的)。等 isFetching 結束、
+  // 確定手上是這次真的抓到的最新結果，才標記成「套用過」，之後(例如附件上傳觸發的
+  // 背景重新整理)才不會把使用者正在改的內容蓋掉。
   const appliedEditId = useRef<string | null>(null);
   useEffect(() => {
     if (!editApplicationId) {
@@ -130,13 +138,17 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       return;
     }
     if (appliedEditId.current === editApplicationId) return;
+    if (editQuery.isFetching) return;
     const data = editQuery.data;
     if (!data) return;
     appliedEditId.current = editApplicationId;
     const isDraft = data.status === "draft";
     setDepartmentId(data.departmentId ?? "");
     setExpenseNatureId(data.expenseNatureId ?? "");
-    setApplicationDate(data.applicationDate ? data.applicationDate.slice(0, 10) : todayStr());
+    // 草稿的申請日期可能真的是空的(使用者刻意清掉、或根本還沒填)，要照實顯示成空白，
+    // 不能塞今天的日期——todayStr() 只適合「全新空白表單」的初始值，用在這裡的話，
+    // 使用者清空這個欄位存成草稿後，下次繼續編輯又會看到今天的日期，變成清不掉。
+    setApplicationDate(data.applicationDate ? data.applicationDate.slice(0, 10) : "");
     setPayeeName(data.payeeName ?? "");
     setRequestedPaymentDate(data.requestedPaymentDate ? data.requestedPaymentDate.slice(0, 10) : "");
     setRows(
@@ -155,7 +167,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     // (這張單內容改過了，舊簽名等於簽在改版前的內容上，沒有意義)。
     setApplicantSignature(isDraft ? data.applicantSignature : null);
     setSubmitState({ status: "idle" });
-  }, [editApplicationId, editQuery.data]);
+  }, [editApplicationId, editQuery.data, editQuery.isFetching]);
 
   // 存草稿要送出去的內容，debounce 自動存跟「附件搶在自動存之前先手動建一筆」共用同一份，
   // 避免兩個地方各寫一次、之後改欄位漏改到其中一邊。
@@ -193,11 +205,26 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     return created.id;
   };
 
+  // 排好但還沒真的觸發的存檔動作放這裡——目的是切分頁離開這個表單(元件真的卸載)時，
+  // 如果剛好有一筆修改還卡在 800ms 的 debounce 裡沒存到，能在卸載前補存一次，不要讓
+  // 使用者「改了東西、馬上切走」的那筆修改因為 debounce 還沒到就直接消失。只有元件真的
+  // 卸載才需要這樣搶救——同一個表單裡因為使用者繼續打字而讓這個 effect 重新排程，
+  // 純粹是「這筆存檔還沒排到就被更新的內容取代」，不需要也不該在那個時間點強制存檔
+  // (那樣等於每打一個字就存一次，失去 debounce 的意義)。
+  const pendingSaveRef = useRef<(() => Promise<void>) | null>(null);
+
   // 表單內容一有變動就(debounce 過)存到後端當草稿——只有「直接建立」或「繼續編輯草稿」
   // 這兩種情境需要，編輯被退回的申請單不套用這個(那個情境本來就有自己一套用伺服器內容
   // 預填、送出時打 resubmit 的流程，草稿存檔邏輯混進去只會搞亂狀態)。
   useEffect(() => {
     if (editApplicationId && !isDraftMode) return; // 正在編輯被退回的申請單，不自動存草稿
+    // 關鍵：Hooks 一定要每次 render 都無條件呼叫，不能寫在上面「載入中」那個 early return
+    // 之後——代表這支 effect 在「繼續編輯」剛掛載、editQuery 都還沒抓回真正內容那一瞬間
+    // 就已經在跑了，這時候欄位還是初始預設值(例如 applicationDate 預設今天)。如果沒有
+    // 這道檢查，等一下 800ms 一到就會拿這些「根本還沒真正還原」的預設值去蓋掉伺服器上
+    // 已經存好的正確內容——實測真的中過這個問題(清空的日期被存回今天)。等下面那個
+    // 還原 effect 真的把 editApplicationId 對應的內容套用完(appliedEditId 對上了)才能存。
+    if (editApplicationId && appliedEditId.current !== editApplicationId) return;
     if (suppressNextAutosave.current) {
       suppressNextAutosave.current = false;
       return;
@@ -206,7 +233,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       return; // 從沒存過草稿、表單也還是空的，不要無中生有建一筆
     }
     const generation = ++draftSaveGeneration.current;
-    const timer = setTimeout(async () => {
+    const performSave = async () => {
+      pendingSaveRef.current = null;
       const body = buildDraftBody();
       try {
         if (activeId) {
@@ -225,10 +253,20 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       } catch {
         // 存草稿失敗(網路問題等)不用跳出來打斷使用者填表單，反正下一次變動又會重試存一次。
       }
-    }, 800);
+    };
+    pendingSaveRef.current = performSave;
+    const timer = setTimeout(performSave, 800);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editApplicationId, isDraftMode, activeId, departmentId, expenseNatureId, applicationDate, payeeName, requestedPaymentDate, rows, applicantSignature]);
+
+  // 真的卸載(切到別的分頁、登出等)時，把還沒來得及觸發的存檔動作立刻補跑一次。
+  useEffect(() => {
+    return () => {
+      pendingSaveRef.current?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 「取消編輯」只是離開編輯畫面回到空白表單，不會動到伺服器上的草稿/被退回申請單——
   // 真的要刪草稿要按旁邊那顆明確標示「刪除」的按鈕，避免手滑點錯就把東西弄丟。
@@ -657,6 +695,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   submitState.status === "submitting" ||
                   !departmentId ||
                   !expenseNatureId ||
+                  !applicationDate ||
                   total <= 0 ||
                   (multiCurrencyEnabled && rows.some((r) => r.categoryId && Number(r.amount) > 0 && amountInTWD(r) === null)) ||
                   validRows.some(isProjectCodeInvalid) ||
