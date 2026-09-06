@@ -37,7 +37,13 @@ interface Props {
   signatureBoxes: PrintableSignatureBox[];
 }
 
-const ROWS_PER_PAGE = 7;
+// 實測過(本機量測，含合計/受款人/需求付款日/簽核欄)：說明欄位是一般短文字、不換行時，
+// 一頁 A4 實際可以放到 16 筆左右才會超出可印刷高度(297mm 扣掉上下 15mm 邊界)；
+// 但「說明」欄位長度是使用者自由輸入，一旦長到在儲存格裡換成兩行，每筆的高度會從
+// 約 33px 跳到約 53px，16 筆的極限一下就會被吃光、變成勉強塞進去或被 usePrintFit
+// 縮到字很小。改用 12 筆(短文字時只用掉約 875/1009 px 的版面，留了足夠的緩衝空間
+// 給換行的說明文字)，真的超出的極端情況再交給 usePrintFit 整頁縮放兜底。
+const ROWS_PER_PAGE = 12;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   if (arr.length === 0) return [[]];
@@ -47,8 +53,8 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 // 列印/PDF 輸出版面 —— 沿用參考版型(舊 hzt-expense 系統)的列印原則：
-// 超過 7 筆費用明細就分頁，每頁重複公司頁首，只有最後一頁接合計/受款人/簽核欄；
-// 7 筆以內則整體縮放塞進一張 A4(見 usePrintFit)。畫面本身平常是隱藏的，只有
+// 超過 12 筆費用明細就分頁，每頁重複公司頁首，只有最後一頁接合計/受款人/簽核欄；
+// 12 筆以內則整體縮放塞進一張 A4(見 usePrintFit)。畫面本身平常是隱藏的，只有
 // 瀏覽器進入列印模式(.print-block 由 Tailwind 的 `print:` 變體控制)才會顯示。
 export function PrintableApplicationForm(props: Props) {
   const {
@@ -160,9 +166,17 @@ export function PrintableApplicationForm(props: Props) {
         const isFirst = idx === 0;
         const isLast = idx === pages.length - 1;
         return (
-          <div key={idx} className={isFirst ? undefined : "break-before-page"}>
+          // minHeight 267mm = A4 扣掉 @page 上下各 15mm 邊界(跟 usePrintFit 換算單頁高度
+          // 用的數字一致)，搭配 flex column 讓底下的合計/受款人/簽核欄用 mt-auto 貼齊
+          // 頁面最下方——不管這頁表格印了幾筆，簽名欄的位置都固定在同一個高度，
+          // 比讓它緊跟在表格後面(筆數少時會卡在頁面中段)更接近紙本表單的排版習慣。
+          <div
+            key={idx}
+            className={`flex flex-col ${isFirst ? "" : "break-before-page"}`}
+            style={{ minHeight: "267mm" }}
+          >
             {renderHeader()}
-            <div className="p-4">
+            <div className="flex flex-1 flex-col p-4">
               {isFirst && (
                 <div className="mb-4 grid grid-cols-2 gap-4 text-sm">
                   <div><span className="font-medium">申請人姓名：</span>{applicantName}</div>
@@ -172,12 +186,14 @@ export function PrintableApplicationForm(props: Props) {
                 </div>
               )}
               {renderTable(pageRows)}
-              {isLast && renderTail()}
-              {isPaginated && (
-                <div className="mt-3 border-t border-dashed border-gray-300 pt-1.5 text-right text-[9pt] text-gray-500">
-                  第 {idx + 1} 頁 / 共 {pages.length} 頁{!isLast && "　接續下一頁 →"}
-                </div>
-              )}
+              <div className="mt-auto">
+                {isLast && renderTail()}
+                {isPaginated && (
+                  <div className="mt-3 border-t border-dashed border-gray-300 pt-1.5 text-right text-[9pt] text-gray-500">
+                    第 {idx + 1} 頁 / 共 {pages.length} 頁{!isLast && "　接續下一頁 →"}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         );
