@@ -17,6 +17,12 @@ const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_FILES = 5;
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+// iPhone 拍照預設存成 HEIC/HEIF 格式，這個問題實測過：這台主機裝的 sharp/libvips 雖然有
+// 「heif 容器格式」的支援，但實際負責解碼 HEIC 影像內容的 HEVC 解碼器沒有編進去(常見於
+// 預先編譯好的 libheif 套件，跟授權金/專利費有關，不是這台主機設定錯)，塞進 sharp() 會直接
+// 丟例外。與其讓它們矇混過 mimetype 檢查、跑到 sharp 那步才爆炸變成看不懂的「伺服器發生
+// 錯誤」，不如在這裡就先攔下來、給一個看得懂、知道怎麼解決的訊息。
+const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif"]);
 
 // 圖片一律轉成 WebP 並限制長邊尺寸——手機拍照動輒 4000px 以上、好幾 MB，收據只要看得清楚
 // 文字內容即可，轉檔+限制尺寸疊加通常能把檔案壓到原本的 20~40%。刻意不保留原始位元組，
@@ -27,15 +33,25 @@ const WEBP_QUALITY = 82;
 // 這樣完全不用擔心原始檔名裡夾帶奇怪字元(例如路徑分隔符)造成路徑穿越。
 const EXT_BY_MIME: Record<string, string> = { "application/pdf": ".pdf", "image/webp": ".webp" };
 
+// 圖片轉檔失敗(HEIC 之外，偶爾也會遇到手機在不穩定的網路上傳到一半、buffer 不完整，
+// 或極少數相機 App 產生的非標準 JPEG 變體)要回一個使用者看得懂的 400，不能讓 sharp
+// 丟出來的原始例外一路穿到最外層的錯誤處理，變成語意不明的「伺服器發生錯誤」。
+class UnsupportedImageError extends Error {}
+
 async function processFile(file: Express.Multer.File): Promise<{ buffer: Buffer; mimeType: string; filename: string }> {
   if (file.mimetype === "application/pdf") {
     return { buffer: file.buffer, mimeType: file.mimetype, filename: file.originalname };
   }
-  const webpBuffer = await sharp(file.buffer)
-    .rotate() // 依 EXIF 方向自動轉正，避免手機直拍存起來變橫的
-    .resize({ width: MAX_IMAGE_DIMENSION, height: MAX_IMAGE_DIMENSION, fit: "inside", withoutEnlargement: true })
-    .webp({ quality: WEBP_QUALITY })
-    .toBuffer();
+  let webpBuffer: Buffer;
+  try {
+    webpBuffer = await sharp(file.buffer)
+      .rotate() // 依 EXIF 方向自動轉正，避免手機直拍存起來變橫的
+      .resize({ width: MAX_IMAGE_DIMENSION, height: MAX_IMAGE_DIMENSION, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: WEBP_QUALITY })
+      .toBuffer();
+  } catch {
+    throw new UnsupportedImageError("圖片檔案無法處理，請確認檔案沒有毀損，或改用 JPG / PNG 格式重新上傳");
+  }
   const baseName = file.originalname.replace(/\.[^./]+$/, "") || "image";
   return { buffer: webpBuffer, mimeType: "image/webp", filename: `${baseName}.webp` };
 }
@@ -44,6 +60,15 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
   fileFilter: (_req, file, cb) => {
+    if (HEIC_MIME_TYPES.has(file.mimetype)) {
+      cb(
+        new UnsupportedImageError(
+          "不支援 HEIC/HEIF 格式(iPhone 拍照預設格式)。請到手機「設定 → 相機 → 格式」改成「最相容」，" +
+            "或改用「檔案」App 把照片轉存成 JPEG 後再上傳"
+        )
+      );
+      return;
+    }
     if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
       cb(new Error("只接受 JPG / PNG / WEBP 圖片或 PDF 檔案"));
       return;
@@ -91,7 +116,15 @@ attachmentsRouter.post("/", (req, res, next) => {
 
   const created = [];
   for (const file of files) {
-    const processed = await processFile(file);
+    let processed;
+    try {
+      processed = await processFile(file);
+    } catch (err) {
+      // 前面幾個檔案(如果有的話)已經處理、存檔成功的部分不會被回滾——這批只要有一個檔案
+      // 處理失敗就整個中止，剩下還沒處理的檔案也不會再繼續跑，直接把清楚的錯誤原因回給
+      // 使用者，讓他知道是「這個檔案」的問題，不是系統掛了，可以換一個檔案再試。
+      return res.status(400).json({ error: err instanceof UnsupportedImageError ? err.message : "檔案處理失敗" });
+    }
     const storedName = `${randomUUID()}${EXT_BY_MIME[processed.mimeType]}`;
     fs.writeFileSync(path.join(dir, storedName), processed.buffer);
     const attachment = await prisma.attachment.create({
