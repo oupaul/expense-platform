@@ -93,9 +93,32 @@ npm run dev                     # 前端：http://localhost:8080，/api 會 prox
 
 ## 部署(Ubuntu 24.04)
 
+全新主機建議直接用 [`server/scripts/install.sh`](server/scripts/install.sh)，兩行指令 + 互動問答
+就能把下面「手動安裝步驟」整段做完(系統套件、Node、PostgreSQL、`.env`、建表、編譯、systemd、
+nginx，選配 HTTPS/防火牆/示範資料/平台管理者帳號)：
+
+```bash
+git clone <這個 repo 的網址> /srv/apps/expense-platform
+cd /srv/apps/expense-platform && sudo bash server/scripts/install.sh
+```
+
+腳本會先列出一份設定摘要（安裝目錄、服務執行帳號、網域、資料庫、要不要灌示範資料/建立平台
+管理者/設定 HTTPS/防火牆）讓你確認過一次才會真的開始動作，不會什麼都沒問就先動手。密碼類的
+輸出(資料庫密碼、平台管理者初始密碼)只會印在當次的終端機畫面上，不會存進任何檔案，請自行
+記下來。
+
+幾點限制，遇到就用下面的「手動安裝步驟」自己處理對應那幾步：
+- 假設是全新主機(沒有跑過的 `expense-platform-api` service、沒有衝突的 nginx site)，不是用
+  來對「已經在跑」的環境做增量升級——那是 [`update.sh`](#更新部署新版本) 的工作。
+- 服務執行帳號必須是「已經存在」的一般使用者(自己先用 `adduser` 建過)，腳本不會自動建帳號。
+- HTTPS 用 `certbot --nginx`，網域要先把 DNS 指到這台主機才會成功；DNS 還沒生效的話這步
+  失敗不會中止其他步驟，之後 DNS 生效了可以自己補跑 `sudo certbot --nginx -d <網域>`。
+
+### 手動安裝步驟(進階/除錯用；`install.sh` 內部做的就是把下面這幾步接起來)
+
 以下假設全新主機，部署到 `/srv/apps/expense-platform/`，用非 root 使用者執行服務。
 
-### 1. 安裝系統套件
+#### 1. 安裝系統套件
 
 ```bash
 # Node.js（用 nvm 管理版本）
@@ -112,7 +135,7 @@ sudo -u postgres psql -c "CREATE USER expense_app WITH PASSWORD '<請自行產�
 sudo -u postgres psql -c "CREATE DATABASE expense_platform_prod OWNER expense_app;"
 ```
 
-### 2. 取得程式碼並安裝依賴
+#### 2. 取得程式碼並安裝依賴
 
 ```bash
 sudo mkdir -p /srv/apps/expense-platform
@@ -124,7 +147,7 @@ npm ci --ignore-scripts
 npm --prefix server ci --ignore-scripts
 ```
 
-### 3. 設定環境變數
+#### 3. 設定環境變數
 
 ```bash
 cp server/.env.example server/.env
@@ -138,7 +161,7 @@ PORT=4000
 JWT_SECRET="$(openssl rand -hex 32)"
 ```
 
-### 4. 建表 + 建置
+#### 4. 建表 + 建置
 
 ```bash
 # 正式環境用 migrate deploy（非互動、只套用既有 migration 檔，不會嘗試產生新的）
@@ -155,7 +178,7 @@ npm --prefix server run build
 npm run build
 ```
 
-### 5. 設定 systemd service(只跑後端 API，前端交給 nginx serve 靜態檔)
+#### 5. 設定 systemd service(只跑後端 API，前端交給 nginx serve 靜態檔)
 
 `/etc/systemd/system/expense-platform-api.service`：
 
@@ -185,7 +208,7 @@ sudo systemctl start expense-platform-api
 sudo systemctl status expense-platform-api
 ```
 
-### 6. 設定 nginx(serve 前端靜態檔 + 反向代理 `/api`)
+#### 6. 設定 nginx(serve 前端靜態檔 + 反向代理 `/api`)
 
 `/etc/nginx/sites-available/expense-platform`：
 
@@ -250,7 +273,7 @@ CDN 快取住的舊版本上。
 
 正式上線建議加 HTTPS(例如 `certbot --nginx`)，這裡先略過。
 
-### 7. 防火牆
+#### 7. 防火牆
 
 ```bash
 sudo ufw allow 22/tcp
