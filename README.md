@@ -43,10 +43,12 @@ id，之後憑證附件就能直接上傳(不用再等「送出」才補傳)。�
 
 - **站內通知**：畫面右上角的鈴鐺圖示，未讀數字紅點、點開是最近 30 筆清單，點一筆會標記已讀
   並自動跳到相關分頁(待簽核通知跳「待簽核」，核准/駁回/退回通知跳「我的申請」)。
-- **Email**：寄給同一批收件人，純文字信件。**SMTP 是選填的**——`server/.env` 沒有設定
-  `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` 的話，email 這塊會靜默略過(只在伺服器 log 印一次警告)，
-  站內通知照常運作，不會因為公司還沒準備好郵件伺服器就整個功能掛掉。設定方式見
-  `server/.env.example` 裡的範例。
+- **Email**：寄給同一批收件人，純文字信件。SMTP 帳號**全平台共用一組**(不是每個租戶各自
+  設定)，在平台管理頁面(`/platform` → 「通知」分頁)設定，密碼用跟 `JWT_SECRET` 同源衍生的
+  金鑰加密存進資料庫，API 不會把明碼密碼回傳給前端；設定完可以直接在畫面上「測試連線」，
+  選填收件信箱的話還會真的寄一封測試信。**沒有啟用/沒有設定完整的話 email 會靜默略過**
+  (只在伺服器 log 印一次警告)，站內通知照常運作，不會因為公司還沒準備好郵件伺服器就整個
+  功能掛掉。
 
 會收到通知的對象：
 
@@ -88,13 +90,6 @@ vite.config.ts                 dev 時 `/api` proxy 到 http://localhost:4000
 DATABASE_URL="postgresql://<user>:<password>@<host>:5432/<db>?schema=public"
 PORT=4000
 JWT_SECRET="用 openssl rand -hex 32 產生，每個環境(dev/prod)都要不一樣，絕對不要沿用範例值"
-
-# 以下為選填：不設定的話 email 通知會靜默略過，站內通知照常運作(見「通知」章節)
-SMTP_HOST="smtp.gmail.com"
-SMTP_PORT=587
-SMTP_USER="your-account@gmail.com"
-SMTP_PASS="應用程式密碼，不是登入密碼"
-SMTP_FROM="expense-platform@your-domain.com"
 ```
 
 `server/.env.example` 是範本，複製一份改成 `.env` 後再填真實值：

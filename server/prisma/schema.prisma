@@ -45,6 +45,23 @@ model BackupConfig {
   updatedAt DateTime @updatedAt
 }
 
+// 平台層級的 email 通知設定——整個平台共用一組 SMTP 帳號寄信(不是每租戶各自設定一組)，
+// 跟上面 BackupConfig 的 NAS 設定同一種模式：固定 id "singleton"，用同一支
+// encryptSecret/decryptSecret(跟 JWT_SECRET 同源衍生金鑰)存密碼，API 絕對不會把
+// 明碼密碼回傳給前端，只回「有沒有設定」。
+model NotificationConfig {
+  id          String  @id @default("singleton")
+  smtpEnabled Boolean @default(false)
+  smtpHost    String?
+  smtpPort    Int     @default(587)
+  smtpSecure  Boolean @default(false)
+  smtpUser    String?
+  smtpPassEnc String? @db.Text
+  smtpFrom    String?
+
+  updatedAt DateTime @updatedAt
+}
+
 // ── 租戶(公司) ─────────────────────────────────────
 // 品牌識別 + 表單結構開關都放在這裡，因為這些是「一家公司改一次、很少變動」的設定，
 // 不需要像部門/費用類別那樣做成獨立的可增刪列表。

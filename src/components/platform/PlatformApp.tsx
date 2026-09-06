@@ -3,6 +3,7 @@ import { PlatformLoginForm } from "@/components/platform/PlatformLoginForm";
 import { PlatformDashboard } from "@/components/platform/PlatformDashboard";
 import { PlatformAdminManager } from "@/components/platform/PlatformAdminManager";
 import { BackupSettings } from "@/components/platform/BackupSettings";
+import { NotificationSettings } from "@/components/platform/NotificationSettings";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import { Button } from "@/components/ui/button";
 import { usePlatformAuth } from "@/hooks/usePlatformAuth";
@@ -12,7 +13,7 @@ const PlatformReports = lazy(() =>
   import("@/components/platform/PlatformReports").then((m) => ({ default: m.PlatformReports }))
 );
 
-type Tab = "companies" | "admins" | "backup" | "reports" | "password";
+type Tab = "companies" | "admins" | "backup" | "notifications" | "reports" | "password";
 
 // 服務供應商的平台管理入口，走 /platform 這個路徑，跟租戶使用者的一般登入(LoginForm)
 // 完全分開一套畫面、一組 token，不會混在一起。
@@ -50,6 +51,14 @@ export function PlatformApp() {
           備份
         </button>
         <button
+          onClick={() => setTab("notifications")}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+            tab === "notifications" ? "bg-white text-slate-900" : "text-slate-300 hover:bg-slate-800"
+          }`}
+        >
+          通知
+        </button>
+        <button
           onClick={() => setTab("reports")}
           className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
             tab === "reports" ? "bg-white text-slate-900" : "text-slate-300 hover:bg-slate-800"
@@ -73,6 +82,7 @@ export function PlatformApp() {
       {tab === "companies" && <PlatformDashboard token={auth.token} />}
       {tab === "admins" && <PlatformAdminManager token={auth.token} currentAdminId={auth.admin.id} />}
       {tab === "backup" && <BackupSettings token={auth.token} />}
+      {tab === "notifications" && <NotificationSettings token={auth.token} />}
       {tab === "reports" && (
         <Suspense fallback={<div className="p-8 text-center text-muted-foreground">載入報表模組中…</div>}>
           <PlatformReports token={auth.token} />

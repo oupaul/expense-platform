@@ -8,6 +8,7 @@ import { hashPassword } from "../auth/password.js";
 import { encryptSecret } from "../auth/nasSecret.js";
 import { requireAuth, requirePlatformAdmin } from "../middleware/auth.js";
 import { BACKUP_DIR, rescheduleBackupJob, runBackupNow, testNasConnection } from "../services/backupScheduler.js";
+import { testSmtpConnection } from "../services/mailer.js";
 
 // 平台管理者建立/檢視租戶(公司)的路由，只有服務供應商自己能用。
 export const platformRouter = Router();
@@ -338,6 +339,85 @@ platformRouter.get("/backups/:filename", (req, res) => {
   const filePath = path.join(BACKUP_DIR, req.params.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: "找不到備份檔案" });
   res.download(filePath);
+});
+
+// GET /api/platform/notification-config
+// 絕對不回傳解密後的 SMTP 密碼，只回「有沒有設定」，前端沒有理由需要看到密碼本身。
+platformRouter.get("/notification-config", async (_req, res) => {
+  const config = await prisma.notificationConfig.findUnique({ where: { id: "singleton" } });
+  res.json({
+    smtpEnabled: config?.smtpEnabled ?? false,
+    smtpHost: config?.smtpHost ?? "",
+    smtpPort: config?.smtpPort ?? 587,
+    smtpSecure: config?.smtpSecure ?? false,
+    smtpUser: config?.smtpUser ?? "",
+    smtpFrom: config?.smtpFrom ?? "",
+    hasSmtpPass: !!config?.smtpPassEnc,
+  });
+});
+
+const notificationConfigSchema = z.object({
+  smtpEnabled: z.boolean().optional(),
+  smtpHost: z.string().optional(),
+  smtpPort: z.number().int().min(1).max(65535).optional(),
+  smtpSecure: z.boolean().optional(),
+  smtpUser: z.string().optional(),
+  smtpFrom: z.string().optional(),
+  // 沒帶這個欄位代表沿用現有密碼(例如只是改寄件人顯示名稱，不想每次都要重打一次密碼)。
+  smtpPass: z.string().optional(),
+});
+
+// PUT /api/platform/notification-config
+platformRouter.put("/notification-config", async (req, res) => {
+  const parsed = notificationConfigSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { smtpPass, ...rest } = parsed.data;
+  await prisma.notificationConfig.upsert({
+    where: { id: "singleton" },
+    update: { ...rest, ...(smtpPass ? { smtpPassEnc: encryptSecret(smtpPass) } : {}) },
+    create: { id: "singleton", ...rest, ...(smtpPass ? { smtpPassEnc: encryptSecret(smtpPass) } : {}) },
+  });
+  res.status(204).end();
+});
+
+const testSmtpSchema = z.object({
+  smtpHost: z.string().min(1),
+  smtpPort: z.number().int().min(1).max(65535).default(587),
+  smtpSecure: z.boolean().default(false),
+  smtpUser: z.string().min(1),
+  // 測試連線時如果沒帶新密碼，就用資料庫裡已經存的那組(方便只改主機/port 之類的設定就重測)。
+  smtpPass: z.string().optional(),
+  testRecipient: z.string().email().optional(),
+});
+
+// POST /api/platform/notification-config/test
+platformRouter.post("/notification-config/test", async (req, res) => {
+  const parsed = testSmtpSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  let passEnc: string | undefined;
+  if (parsed.data.smtpPass) {
+    passEnc = encryptSecret(parsed.data.smtpPass);
+  } else {
+    const existing = await prisma.notificationConfig.findUnique({ where: { id: "singleton" } });
+    passEnc = existing?.smtpPassEnc ?? undefined;
+  }
+  if (!passEnc) {
+    return res.status(400).json({ error: "尚未設定 SMTP 密碼" });
+  }
+
+  const result = await testSmtpConnection({
+    host: parsed.data.smtpHost,
+    port: parsed.data.smtpPort,
+    secure: parsed.data.smtpSecure,
+    user: parsed.data.smtpUser,
+    passEnc,
+    testRecipient: parsed.data.testRecipient,
+  });
+  res.json(result);
 });
 
 // GET /api/platform/reports/summary

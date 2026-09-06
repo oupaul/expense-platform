@@ -44,6 +44,16 @@ export interface BackupConfig {
   lastRunMessage: string | null;
 }
 
+export interface NotificationConfig {
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpFrom: string;
+  hasSmtpPass: boolean;
+}
+
 export interface BackupFileItem {
   filename: string;
   size: number;
