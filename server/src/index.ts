@@ -13,6 +13,7 @@ import { applicationsRouter } from "./routes/applications.js";
 import { exchangeRatesRouter } from "./routes/exchangeRates.js";
 import { usersRouter } from "./routes/users.js";
 import { reportsRouter } from "./routes/reports.js";
+import { notificationsRouter } from "./routes/notifications.js";
 import { platformAuthRouter } from "./routes/platformAuth.js";
 import { platformRouter } from "./routes/platform.js";
 import { rescheduleBackupJob } from "./services/backupScheduler.js";
@@ -51,6 +52,7 @@ app.use("/api/companies/:companyId/applications", applicationsRouter);
 app.use("/api/companies/:companyId/exchange-rates", exchangeRatesRouter);
 app.use("/api/companies/:companyId/users", usersRouter);
 app.use("/api/companies/:companyId/reports", reportsRouter);
+app.use("/api/companies/:companyId/notifications", notificationsRouter);
 
 app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   req.log.error(err);

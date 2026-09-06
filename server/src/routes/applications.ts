@@ -6,6 +6,15 @@ import { prisma } from "../db.js";
 import { requireAuth, requireSameCompany } from "../middleware/auth.js";
 import { ALL_CURRENCIES } from "../constants.js";
 import { attachmentsRouter } from "./attachments.js";
+import { notifySubmission, notifyDecision } from "../services/notifications.js";
+
+// 通知(站內鈴鐺清單 + email)刻意不 await、只掛一個 .catch() 吞掉錯誤：申請單本身有沒有
+// 送出/簽核成功，跟通知寄不寄得出去是兩件事，不該讓 SMTP 連線慢/失敗拖慢或搞壞這個
+// API 請求本身；不掛 catch 的話，萬一 notify 內部真的丟出例外，會變成沒人接的
+// unhandled promise rejection。
+function fireNotification(promise: Promise<void>) {
+  promise.catch((err) => console.error("通知寄送失敗", err));
+}
 
 // mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
 // 自己的路徑字面量(例如 "/:id")推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
@@ -211,6 +220,7 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
     include: { items: true, approvalRecords: true },
   });
 
+  fireNotification(notifySubmission({ id: application.id, companyId, totalAmountTWD: Number(application.totalAmountTWD) }));
   res.status(201).json(application);
 });
 
@@ -414,6 +424,7 @@ applicationsRouter.post("/:id/submit-draft", async (req: CompanyScopedWithId, re
     },
     include: { items: true, approvalRecords: true },
   });
+  fireNotification(notifySubmission({ id: application.id, companyId, totalAmountTWD: Number(application.totalAmountTWD) }));
   res.status(200).json(application);
 });
 
@@ -487,6 +498,18 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
     }),
   ]);
 
+  const nextStage = application.approvalRecords[currentIndex + 1]?.stage;
+  fireNotification(
+    notifyDecision({
+      application: { id: application.id, companyId: application.companyId, applicantId: application.applicantId, totalAmountTWD: Number(application.totalAmountTWD) },
+      action,
+      isLastStage,
+      currentStageLabel: currentRecord.stage.label,
+      nextStageRoleKey: nextStage?.roleKey,
+      nextStageLabel: nextStage?.label,
+      comment,
+    })
+  );
   res.status(204).end();
 });
 
@@ -561,5 +584,6 @@ applicationsRouter.post("/:id/resubmit", async (req: CompanyScopedWithId, res) =
     where: { id: application.id },
     include: { items: true, approvalRecords: true },
   });
+  fireNotification(notifySubmission({ id: application.id, companyId, totalAmountTWD }));
   res.status(200).json(refreshed);
 });

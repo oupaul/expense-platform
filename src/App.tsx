@@ -11,6 +11,7 @@ import { LoginForm } from "@/components/LoginForm";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import { PlatformApp } from "@/components/platform/PlatformApp";
 import { BrandingProvider } from "@/components/BrandingProvider";
+import { NotificationBell } from "@/components/NotificationBell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompanyConfig } from "@/hooks/useCompanyConfig";
@@ -68,6 +69,7 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
         {canViewReports && tabButton("reports", "報表")}
         {isAdmin && tabButton("admin", "後台管理")}
         {tabButton("password", "修改密碼")}
+        <NotificationBell auth={auth} onNavigate={setTab} />
         <span className="px-2 text-xs text-slate-400">{auth.user.name}({auth.user.role})</span>
         <Button variant="ghost" size="sm" onClick={logout}>登出</Button>
       </div>

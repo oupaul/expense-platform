@@ -82,6 +82,7 @@ model Company {
   exchangeRates     ExchangeRate[]
   users             User[]
   applications      ExpenseApplication[]
+  notifications     Notification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -188,6 +189,7 @@ model User {
   applications   ExpenseApplication[] @relation("Applicant")
   approvalRecords ApprovalRecord[]
   uploadedAttachments Attachment[]
+  notifications  Notification[]
 
   createdAt DateTime @default(now())
 
@@ -235,6 +237,7 @@ model ExpenseApplication {
   items           ExpenseItem[]
   approvalRecords ApprovalRecord[]
   attachments     Attachment[]
+  notifications   Notification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -304,4 +307,30 @@ model ApprovalRecord {
 
   @@unique([applicationId, stageId])
   @@index([applicationId])
+}
+
+// ── 通知 ──────────────────────────────────────────
+// 站內通知(鈴鐺清單)跟 email 共用同一個觸發點：申請單送出、待簽核、核准/駁回/退回——
+// 站內這份留存歷史紀錄(未讀/已讀)，email 是額外的即時提醒，兩者各自獨立，
+// 其中一個失敗(例如 SMTP 沒設定)不影響另一個。applicationId 允許為 null 是為了保留彈性，
+// 目前所有通知都一定會帶著它，之後若有跟特定申請單無關的系統通知也能沿用同一張表。
+model Notification {
+  id            String              @id @default(cuid())
+  companyId     String
+  company       Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String?
+  application   ExpenseApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // submitted(有新申請單待你簽核) / approved(申請已核准) / rejected(已駁回) / returned(已退回)
+  type    String
+  title   String
+  message String
+
+  read Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, userId, read])
 }
