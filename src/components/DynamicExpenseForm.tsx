@@ -96,21 +96,29 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   // 用這個旗標跳過送出成功後的下一次自動存檔，之後使用者真的再動手改欄位才會恢復正常運作。
   const suppressNextAutosave = useRef(false);
 
+  // 三種狀態互斥：直接建立(從沒進來過編輯模式)、繼續編輯草稿、編輯被退回的申請單重新送出。
+  // activeId 是「目前這個表單工作階段對應到後端哪一筆申請單」——沒有 editApplicationId 時
+  // 用這次工作階段自動存出來的 sessionDraftId(附件在選檔案當下也是靠這個 id 直接上傳)。
+  const activeId = editApplicationId ?? sessionDraftId;
+
+  // 用 activeId(不是只有 editApplicationId)去抓申請單內容，這樣「附件上傳完之後要更新
+  // 列表」這件事，不管 id 是從「我的申請」帶進來的、還是這次自動存草稿才剛拿到的，
+  // 都能用同一個 query 正確反映最新的附件清單。真的把伺服器內容套進表單欄位的邏輯
+  // (下面那個 effect)則刻意只認 editApplicationId，這次工作階段自己存出來的草稿，
+  // 表單欄位本來就是最新的，不需要、也不該被這裡的查詢結果覆蓋回去。
   const editQuery = useQuery({
-    queryKey: ["application-detail", auth.user.companyId, editApplicationId],
+    queryKey: ["application-detail", auth.user.companyId, activeId],
     queryFn: () =>
-      apiFetch<ApplicationDetailType>(`${basePath}/${editApplicationId}`, {
+      apiFetch<ApplicationDetailType>(`${basePath}/${activeId}`, {
         token: auth.token,
       }),
-    enabled: !!editApplicationId,
+    enabled: !!activeId,
   });
 
-  // 三種狀態互斥：直接建立(從沒進來過編輯模式)、繼續編輯草稿、編輯被退回的申請單重新送出。
-  // activeId 是「目前這個表單工作階段對應到後端哪一筆申請單」，isDraftMode 決定存檔/送出
-  // 要打草稿那組 API 還是原本建立/resubmit 那組——沒有 editApplicationId 時視同草稿模式，
-  // 因為從空白表單開始填、自動存出來的東西本來就是草稿，不會是「退回重新編輯」。
+  // isDraftMode 決定存檔/送出要打草稿那組 API 還是原本建立/resubmit 那組——沒有
+  // editApplicationId 時視同草稿模式，因為從空白表單開始填、自動存出來的東西本來就是
+  // 草稿，不會是「退回重新編輯」。
   const loadedStatus = editApplicationId ? editQuery.data?.status : undefined;
-  const activeId = editApplicationId ?? sessionDraftId;
   const isDraftMode = editApplicationId ? loadedStatus === "draft" : true;
 
   // 資料回來後把既有內容填進表單——用 ref 記住「已經套用過哪個 id」，避免使用者接著手動
@@ -149,6 +157,42 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     setSubmitState({ status: "idle" });
   }, [editApplicationId, editQuery.data]);
 
+  // 存草稿要送出去的內容，debounce 自動存跟「附件搶在自動存之前先手動建一筆」共用同一份，
+  // 避免兩個地方各寫一次、之後改欄位漏改到其中一邊。
+  const buildDraftBody = () => ({
+    departmentId: departmentId || undefined,
+    expenseNatureId: expenseNatureId || undefined,
+    applicationDate: applicationDate || undefined,
+    payeeName: payeeName || undefined,
+    requestedPaymentDate: requestedPaymentDate || undefined,
+    applicantSignature: applicantSignature || undefined,
+    items: rows.map((r) => ({
+      categoryId: r.categoryId || undefined,
+      description: r.description || undefined,
+      projectCode: r.projectCode || undefined,
+      invoiceDate: r.invoiceDate || undefined,
+      currency: r.currency,
+      amount: r.amount ? Number(r.amount) : undefined,
+    })),
+  });
+
+  // 手機上很常見「先拍照、其他欄位還沒填」——這時 activeId 還是 null，交給
+  // AttachmentUpload 在選檔案當下呼叫，立刻(不等 800ms debounce)建一筆草稿拿到真正的
+  // id，檔案才能直接上傳、真的存到伺服器，不會只留在瀏覽器分頁的記憶體裡。
+  // activeId 改變後，下面自動存檔的 effect 因為依賴陣列裡有 activeId 會自動重新排程
+  // (連帶取消掉還沒觸發的舊 timer)，不會因此重複建立第二筆草稿。
+  const ensureDraftId = async (): Promise<string> => {
+    if (activeId) return activeId;
+    const created = await apiFetch<{ id: string }>(`${basePath}/draft`, {
+      method: "POST",
+      token: auth.token,
+      body: buildDraftBody(),
+    });
+    setSessionDraftId(created.id);
+    setDraftSavedAt(new Date().toISOString());
+    return created.id;
+  };
+
   // 表單內容一有變動就(debounce 過)存到後端當草稿——只有「直接建立」或「繼續編輯草稿」
   // 這兩種情境需要，編輯被退回的申請單不套用這個(那個情境本來就有自己一套用伺服器內容
   // 預填、送出時打 resubmit 的流程，草稿存檔邏輯混進去只會搞亂狀態)。
@@ -163,22 +207,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     }
     const generation = ++draftSaveGeneration.current;
     const timer = setTimeout(async () => {
-      const body = {
-        departmentId: departmentId || undefined,
-        expenseNatureId: expenseNatureId || undefined,
-        applicationDate: applicationDate || undefined,
-        payeeName: payeeName || undefined,
-        requestedPaymentDate: requestedPaymentDate || undefined,
-        applicantSignature: applicantSignature || undefined,
-        items: rows.map((r) => ({
-          categoryId: r.categoryId || undefined,
-          description: r.description || undefined,
-          projectCode: r.projectCode || undefined,
-          invoiceDate: r.invoiceDate || undefined,
-          currency: r.currency,
-          amount: r.amount ? Number(r.amount) : undefined,
-        })),
-      };
+      const body = buildDraftBody();
       try {
         if (activeId) {
           await apiFetch(`${basePath}/${activeId}/draft`, { method: "PUT", token: auth.token, body });
@@ -351,8 +380,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
         message: attachmentWarning ?? (isResubmit ? "已重新送出，等待簽核" : "申請單已送出，等待簽核"),
       });
       queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
-      if (editApplicationId) {
-        queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, editApplicationId] });
+      if (activeId) {
+        queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, activeId] });
       }
       suppressNextAutosave.current = true;
       setRows([emptyRow()]);
@@ -593,11 +622,12 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               <AttachmentUpload
                 auth={auth}
                 applicationId={activeId}
+                ensureApplicationId={ensureDraftId}
                 existingAttachments={activeId ? editQuery.data?.attachments ?? [] : []}
                 stagedFiles={stagedAttachments}
                 onStagedFilesChange={setStagedAttachments}
-                onExistingChange={() =>
-                  queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, editApplicationId] })
+                onExistingChange={(id) =>
+                  queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, id] })
                 }
               />
             </div>

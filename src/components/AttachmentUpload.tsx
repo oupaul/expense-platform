@@ -11,18 +11,29 @@ export interface StagedFile {
 
 interface Props {
   auth: AuthState;
-  // 還在建立中、尚未有 id 的新申請單傳 null——這時檔案先留在瀏覽器記憶體(stagedFiles)，
-  // 等申請單真的建立成功拿到 id 之後，由外層(DynamicExpenseForm)負責把暫存檔案補傳上去。
+  // 還在建立中、尚未有 id 的新申請單傳 null——這時如果有提供 ensureApplicationId，
+  // 會先呼叫它拿一個真正的 id 再直接上傳；沒有提供的話才退回舊行為，檔案先留在瀏覽器
+  // 記憶體(stagedFiles)，等申請單真的建立成功拿到 id 之後由外層負責補傳。
   applicationId: string | null;
+  // 手機上很常見的操作順序是「先拍照、再填其他欄位」——如果表單完全空白、還沒觸發過
+  // 自動存草稿，這張照片選下去那一刻 applicationId 還是 null，只能暫存在瀏覽器記憶體裡，
+  // 換頁/換裝置就會不見。提供這個 callback 讓呼叫端可以「現在立刻」建一筆草稿拿到真正的
+  // id，檔案就能直接上傳、真的存到伺服器，不用等使用者剛好先動了別的欄位觸發自動存檔。
+  ensureApplicationId?: () => Promise<string>;
   existingAttachments: AttachmentMeta[];
   stagedFiles: StagedFile[];
   onStagedFilesChange: (files: StagedFile[]) => void;
-  onExistingChange?: () => void;
+  // 帶一個 id 參數回去：剛透過 ensureApplicationId 拿到 id 的當下，外層(DynamicExpenseForm)
+  // 都還沒重新 render、傳進來的 applicationId prop 跟這裡呼叫端閉包住的還是舊值(null)，
+  // 呼叫端如果只靠自己記得的 activeId 去 invalidate 快取，會抓錯 query key、畫面不會更新。
+  // 直接把「這次上傳實際用的 id」傳回去，呼叫端才不用依賴自己那份可能還沒更新的狀態。
+  onExistingChange?: (id: string) => void;
 }
 
 export function AttachmentUpload({
   auth,
   applicationId,
+  ensureApplicationId,
   existingAttachments,
   stagedFiles,
   onStagedFilesChange,
@@ -36,11 +47,26 @@ export function AttachmentUpload({
     if (!fileList || fileList.length === 0) return;
     setError(null);
     const files = Array.from(fileList);
-    if (applicationId) {
+    let targetId = applicationId;
+    if (!targetId && ensureApplicationId) {
       setUploading(true);
       try {
-        await apiUpload(`/companies/${auth.user.companyId}/applications/${applicationId}/attachments`, files, auth.token);
-        onExistingChange?.();
+        targetId = await ensureApplicationId();
+      } catch {
+        // 建草稿失敗(通常是網路問題)不能就這樣讓選好的檔案憑空消失——退回暫存在瀏覽器
+        // 記憶體，跟完全沒有 ensureApplicationId 時的行為一樣，之後存草稿成功時一樣會補傳。
+        setError("暫時無法存檔，檔案先留在這台裝置，等網路恢復或送出時會自動補傳");
+        setUploading(false);
+        onStagedFilesChange([...stagedFiles, ...files.map((file) => ({ file, previewUrl: URL.createObjectURL(file) }))]);
+        if (inputRef.current) inputRef.current.value = "";
+        return;
+      }
+    }
+    if (targetId) {
+      setUploading(true);
+      try {
+        await apiUpload(`/companies/${auth.user.companyId}/applications/${targetId}/attachments`, files, auth.token);
+        onExistingChange?.(targetId);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "上傳失敗");
       } finally {
@@ -65,7 +91,7 @@ export function AttachmentUpload({
         method: "DELETE",
         token: auth.token,
       });
-      onExistingChange?.();
+      onExistingChange?.(applicationId);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "刪除失敗");
     }
