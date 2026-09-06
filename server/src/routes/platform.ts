@@ -339,3 +339,65 @@ platformRouter.get("/backups/:filename", (req, res) => {
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: "找不到備份檔案" });
   res.download(filePath);
 });
+
+// GET /api/platform/reports/summary
+// 平台管理者視角的使用狀況：這裡看的是「業務量體」不是「實際花費」，所以刻意不像
+// 租戶報表那樣只算 status=approved——不管審核到哪個階段，都算是這個租戶在使用這個平台，
+// 這裡要回答的問題是「哪個客戶用得多/用得勤」，不是「這筆錢有沒有真的花出去」。
+platformRouter.get("/reports/summary", async (_req, res) => {
+  const [totalCompanies, totalUsers, applications, companies, lastActivityRaw] = await Promise.all([
+    prisma.company.count(),
+    prisma.user.count(),
+    prisma.expenseApplication.findMany({ select: { companyId: true, totalAmountTWD: true, createdAt: true } }),
+    prisma.company.findMany({
+      select: { id: true, slug: true, name: true, createdAt: true, _count: { select: { users: true, applications: true } } },
+    }),
+    prisma.expenseApplication.groupBy({ by: ["companyId"], _max: { createdAt: true } }),
+  ]);
+
+  const lastActivityByCompany = new Map(lastActivityRaw.map((r) => [r.companyId, r._max.createdAt]));
+
+  const totalsByCompany = new Map<string, number>();
+  for (const app of applications) {
+    totalsByCompany.set(app.companyId, (totalsByCompany.get(app.companyId) ?? 0) + Number(app.totalAmountTWD));
+  }
+
+  const byCompany = companies
+    .map((c) => ({
+      companyId: c.id,
+      slug: c.slug,
+      name: c.name,
+      userCount: c._count.users,
+      applicationCount: c._count.applications,
+      totalAmountTWD: totalsByCompany.get(c.id) ?? 0,
+      lastActivityAt: lastActivityByCompany.get(c.id) ?? null,
+    }))
+    .sort((a, b) => b.applicationCount - a.applicationCount);
+
+  // 近 12 個月的成長趨勢，直接在 JS 分月加總——平台規模還沒到需要資料庫層級聚合的量級。
+  const monthKey = (d: Date) => d.toISOString().slice(0, 7);
+  const companiesGrowthMap = new Map<string, number>();
+  for (const c of companies) {
+    const month = monthKey(c.createdAt);
+    companiesGrowthMap.set(month, (companiesGrowthMap.get(month) ?? 0) + 1);
+  }
+  const applicationsGrowthMap = new Map<string, number>();
+  for (const app of applications) {
+    const month = monthKey(app.createdAt);
+    applicationsGrowthMap.set(month, (applicationsGrowthMap.get(month) ?? 0) + 1);
+  }
+  const toSortedSeries = (map: Map<string, number>) =>
+    Array.from(map.entries())
+      .map(([month, value]) => ({ month, value }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+  res.json({
+    totalCompanies,
+    totalUsers,
+    totalApplications: applications.length,
+    totalAmountTWD: applications.reduce((sum, a) => sum + Number(a.totalAmountTWD), 0),
+    byCompany,
+    companiesGrowth: toSortedSeries(companiesGrowthMap),
+    applicationsGrowth: toSortedSeries(applicationsGrowthMap),
+  });
+});

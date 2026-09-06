@@ -15,3 +15,11 @@ export interface ApprovalStageItem {
   label: string;
   active: boolean;
 }
+
+export interface ReportSummary {
+  range: { from: string; to: string };
+  byDepartment: { departmentId: string; name: string; totalTWD: number; count: number }[];
+  byCategory: { categoryId: string; name: string; totalTWD: number; count: number }[];
+  byStatus: { status: string; totalTWD: number; count: number }[];
+  monthlyTrend: { month: string; totalTWD: number }[];
+}

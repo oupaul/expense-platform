@@ -49,3 +49,21 @@ export interface BackupFileItem {
   size: number;
   createdAt: string;
 }
+
+export interface PlatformReportSummary {
+  totalCompanies: number;
+  totalUsers: number;
+  totalApplications: number;
+  totalAmountTWD: number;
+  byCompany: {
+    companyId: string;
+    slug: string;
+    name: string;
+    userCount: number;
+    applicationCount: number;
+    totalAmountTWD: number;
+    lastActivityAt: string | null;
+  }[];
+  companiesGrowth: { month: string; value: number }[];
+  applicationsGrowth: { month: string; value: number }[];
+}

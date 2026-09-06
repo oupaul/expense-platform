@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useState, Suspense, lazy } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DynamicExpenseForm } from "@/components/DynamicExpenseForm";
 import { PendingApprovals } from "@/components/PendingApprovals";
 import { MyApplications } from "@/components/MyApplications";
 import { AdminPanel } from "@/components/admin/AdminPanel";
+// 動態載入：報表用到的 recharts 一次就加了 400KB+ 的打包體積，但只有 admin 會點進「報表」，
+// 大部分使用者(申請人/簽核者)一次都不會用到，不該讓每個人一開頁面就先付這筆下載成本。
+const ReportsView = lazy(() => import("@/components/admin/ReportsView").then((m) => ({ default: m.ReportsView })));
 import { LoginForm } from "@/components/LoginForm";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import { PlatformApp } from "@/components/platform/PlatformApp";
@@ -15,7 +18,7 @@ import type { AuthState } from "@/types/auth";
 
 const queryClient = new QueryClient();
 
-type Tab = "form" | "my-applications" | "approvals" | "admin" | "password";
+type Tab = "form" | "my-applications" | "approvals" | "reports" | "admin" | "password";
 
 function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => void }) {
   const [tab, setTab] = useState<Tab>("form");
@@ -56,6 +59,7 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
         </button>
         {tabButton("my-applications", "我的申請")}
         {tabButton("approvals", "待簽核")}
+        {isAdmin && tabButton("reports", "報表")}
         {isAdmin && tabButton("admin", "後台管理")}
         {tabButton("password", "修改密碼")}
         <span className="px-2 text-xs text-slate-400">{auth.user.name}({auth.user.role})</span>
@@ -87,6 +91,13 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
       {tab === "approvals" && (
         <div className="min-h-screen bg-slate-50 print:hidden">
           <PendingApprovals auth={auth} />
+        </div>
+      )}
+      {tab === "reports" && isAdmin && (
+        <div className="min-h-screen bg-slate-50 print:hidden">
+          <Suspense fallback={<div className="p-8 text-center text-muted-foreground">載入報表模組中…</div>}>
+            <ReportsView auth={auth} />
+          </Suspense>
         </div>
       )}
       {tab === "admin" && isAdmin && (
