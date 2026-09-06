@@ -10,6 +10,14 @@ SERVICE_NAME="${SERVICE_NAME:-expense-platform-api}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
+# install.sh 把整個 APP_DIR 的擁有者設成安裝時選的服務執行帳號，不是 root。如果這支腳本
+# 是用 `sudo bash update.sh` 在已經是 root 的登入階段執行(常見於直接用 root SSH 進主機的
+# VPS)，git 目前的版本會因為「執行者不是目錄擁有者」直接拒絕動作(dubious ownership 保護，
+# CVE-2022-24765 之後加的)，卡在第一個 git pull 就失敗。這裡的擁有權差異是我們自己的
+# install.sh 刻意造成的、不是別人動過手腳，對這一個路徑加例外是安全的，不用每個人自己
+# 照著錯誤訊息貼指令。
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+
 cd "$APP_DIR"
 
 # 之前好幾次更新失敗，根源都是這個：主機上有一筆意外的本機修改(例如 package.json
