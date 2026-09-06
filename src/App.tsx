@@ -48,7 +48,10 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
     <div>
       {/* sticky 而非 fixed：佔用實際版面高度、把下面內容往下推，
           不會疊在公司名稱上面(手機窄螢幕尤其明顯)。flex-wrap 讓按鈕在窄螢幕自動換行。 */}
-      <div className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b bg-white/95 px-4 py-2 shadow-sm print:hidden">
+      {/* bg-white 必須完全不透明——曾經用 bg-white/95，滾動後導覽列固定在頂部時，
+          底下費用申請單的品牌色 header(公司名稱／「費用申請單」字樣)會從 5% 透光處
+          透出來，跟導覽列的分頁文字疊在一起，手機窄螢幕尤其明顯難以辨識。 */}
+      <div className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b bg-white px-4 py-2 shadow-sm print:hidden">
         <button
           onClick={() => {
             setEditApplicationId(null);

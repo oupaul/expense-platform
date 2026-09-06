@@ -499,9 +499,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
             <div className="text-lg">費用申請單</div>
           </div>
 
-          <div className="space-y-6 p-8">
-            {/* 基本欄位：部門/費用性質選項完全來自後台設定的資料，不是寫死的 <option> */}
-            <div className="grid grid-cols-2 gap-8">
+          <div className="space-y-6 p-4 sm:p-8">
+            {/* 基本欄位：部門/費用性質選項完全來自後台設定的資料，不是寫死的 <option>。
+                grid-cols-1 起手、sm 以上才並排——手機窄螢幕如果固定兩欄，「申請日期」
+                這種輸入框+清除按鈕的組合會被擠到只剩一半寬度，日期顯示不全。 */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-8">
               <div>
                 <Label>申請人姓名</Label>
                 <Input value={auth.user.name} disabled />
@@ -554,79 +556,190 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               <h2 className="mb-3 border-b-2 pb-2 text-lg font-bold" style={{ borderColor: branding.primaryColor }}>
                 費用明細
               </h2>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>費用項目</TableHead>
-                    {showProjectCodeColumn && <TableHead>專案編號</TableHead>}
-                    <TableHead>說明</TableHead>
-                    {optionalFields.invoiceDate && (
-                      <TableHead className="whitespace-nowrap">
-                        發票日期
-                        <br />
-                        <span className="text-xs font-normal">(個人代墊費用可不填)</span>
-                      </TableHead>
-                    )}
-                    {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
-                    <TableHead>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
-                    {multiCurrencyEnabled && <TableHead>換算 TWD</TableHead>}
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row, i) => (
-                    <TableRow key={i}>
-                      <TableCell>
-                        <Select value={row.categoryId} onValueChange={(v) => updateRow(i, { categoryId: v })}>
-                          <SelectTrigger><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
-                          <SelectContent>
-                            {expenseCategories.map((c) => (
-                              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      {showProjectCodeColumn && (
-                        <TableCell>
-                          <Input
-                            value={row.projectCode ?? ""}
-                            onChange={(e) => updateRow(i, { projectCode: e.target.value })}
-                            placeholder={isProjectCodeRequired(row) ? "專案編號(需10碼)" : "專案編號"}
-                            maxLength={10}
-                            className={isProjectCodeInvalid(row) ? "border-destructive" : undefined}
-                          />
-                        </TableCell>
-                      )}
-                      <TableCell>
-                        <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
-                      </TableCell>
+              {/* 桌面：維持原本的橫向表格。手機：表格欄位固定並排在窄螢幕塞不下，
+                  瀏覽器會被迫把「專案編號」這種標題擠成一字一行的直排、輸入框窄到
+                  看不到內容，改用下面的卡片式直向版面，同一份資料兩套渲染，邏輯
+                  (updateRow/驗證)完全共用，只有排版不同。 */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>費用項目</TableHead>
+                      {showProjectCodeColumn && <TableHead>專案編號</TableHead>}
+                      <TableHead>說明</TableHead>
                       {optionalFields.invoiceDate && (
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Input
-                              type="date"
-                              className="min-w-0 flex-1"
-                              value={row.invoiceDate ?? ""}
-                              onChange={(e) => updateRow(i, { invoiceDate: e.target.value })}
-                            />
-                            {/* 手機原生日期選擇器通常沒有清除功能，補一個按鈕；表格欄位窄，
-                                用圖示不用文字，跟旁邊「申請日期」那個獨立欄位的做法一致但省空間。 */}
-                            {row.invoiceDate && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                aria-label="清除發票日期"
-                                onClick={() => updateRow(i, { invoiceDate: "" })}
-                              >
-                                ✕
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
+                        <TableHead className="whitespace-nowrap">
+                          發票日期
+                          <br />
+                          <span className="text-xs font-normal">(個人代墊費用可不填)</span>
+                        </TableHead>
                       )}
-                      {multiCurrencyEnabled && (
+                      {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
+                      <TableHead>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
+                      {multiCurrencyEnabled && <TableHead>換算 TWD</TableHead>}
+                      <TableHead />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map((row, i) => (
+                      <TableRow key={i}>
                         <TableCell>
+                          <Select value={row.categoryId} onValueChange={(v) => updateRow(i, { categoryId: v })}>
+                            <SelectTrigger><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
+                            <SelectContent>
+                              {expenseCategories.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        {showProjectCodeColumn && (
+                          <TableCell>
+                            <Input
+                              value={row.projectCode ?? ""}
+                              onChange={(e) => updateRow(i, { projectCode: e.target.value })}
+                              placeholder={isProjectCodeRequired(row) ? "專案編號(需10碼)" : "專案編號"}
+                              maxLength={10}
+                              className={isProjectCodeInvalid(row) ? "border-destructive" : undefined}
+                            />
+                          </TableCell>
+                        )}
+                        <TableCell>
+                          <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
+                        </TableCell>
+                        {optionalFields.invoiceDate && (
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Input
+                                type="date"
+                                className="min-w-0 flex-1"
+                                value={row.invoiceDate ?? ""}
+                                onChange={(e) => updateRow(i, { invoiceDate: e.target.value })}
+                              />
+                              {/* 手機原生日期選擇器通常沒有清除功能，補一個按鈕；表格欄位窄，
+                                  用圖示不用文字，跟旁邊「申請日期」那個獨立欄位的做法一致但省空間。 */}
+                              {row.invoiceDate && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  aria-label="清除發票日期"
+                                  onClick={() => updateRow(i, { invoiceDate: "" })}
+                                >
+                                  ✕
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
+                        {multiCurrencyEnabled && (
+                          <TableCell>
+                            <Select value={row.currency} onValueChange={(v) => updateRow(i, { currency: v })}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {ALL_CURRENCIES.map((c) => (
+                                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                        )}
+                        <TableCell>
+                          <Input type="number" value={row.amount} onChange={(e) => updateRow(i, { amount: e.target.value })} placeholder="0" />
+                        </TableCell>
+                        {multiCurrencyEnabled && (
+                          <TableCell className="text-sm text-muted-foreground">
+                            {amountInTWD(row) === null ? (
+                              <span className="text-destructive">尚未設定匯率</span>
+                            ) : (
+                              `≈ ${amountInTWD(row)!.toFixed(0)}`
+                            )}
+                          </TableCell>
+                        )}
+                        <TableCell>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => setRows((prev) => prev.filter((_, idx) => idx !== i))}
+                          >
+                            刪除
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="space-y-3 md:hidden">
+                {rows.map((row, i) => (
+                  <div key={i} className="space-y-3 rounded-lg border bg-slate-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-500">第 {i + 1} 筆</span>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setRows((prev) => prev.filter((_, idx) => idx !== i))}
+                      >
+                        刪除
+                      </Button>
+                    </div>
+                    <div>
+                      <Label>費用項目</Label>
+                      <Select value={row.categoryId} onValueChange={(v) => updateRow(i, { categoryId: v })}>
+                        <SelectTrigger><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
+                        <SelectContent>
+                          {expenseCategories.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {showProjectCodeColumn && (
+                      <div>
+                        <Label>專案編號</Label>
+                        <Input
+                          value={row.projectCode ?? ""}
+                          onChange={(e) => updateRow(i, { projectCode: e.target.value })}
+                          placeholder={isProjectCodeRequired(row) ? "專案編號(需10碼)" : "專案編號"}
+                          maxLength={10}
+                          className={isProjectCodeInvalid(row) ? "border-destructive" : undefined}
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <Label>說明</Label>
+                      <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
+                    </div>
+                    {optionalFields.invoiceDate && (
+                      <div>
+                        <Label>發票日期(個人代墊費用可不填)</Label>
+                        <div className="flex gap-1">
+                          <Input
+                            type="date"
+                            className="min-w-0 flex-1"
+                            value={row.invoiceDate ?? ""}
+                            onChange={(e) => updateRow(i, { invoiceDate: e.target.value })}
+                          />
+                          {row.invoiceDate && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              aria-label="清除發票日期"
+                              onClick={() => updateRow(i, { invoiceDate: "" })}
+                            >
+                              ✕
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div className={multiCurrencyEnabled ? "grid grid-cols-2 gap-3" : undefined}>
+                      {multiCurrencyEnabled && (
+                        <div>
+                          <Label>幣別</Label>
                           <Select value={row.currency} onValueChange={(v) => updateRow(i, { currency: v })}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
@@ -635,33 +748,27 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                               ))}
                             </SelectContent>
                           </Select>
-                        </TableCell>
+                        </div>
                       )}
-                      <TableCell>
+                      <div>
+                        <Label>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</Label>
                         <Input type="number" value={row.amount} onChange={(e) => updateRow(i, { amount: e.target.value })} placeholder="0" />
-                      </TableCell>
-                      {multiCurrencyEnabled && (
-                        <TableCell className="text-sm text-muted-foreground">
-                          {amountInTWD(row) === null ? (
-                            <span className="text-destructive">尚未設定匯率</span>
-                          ) : (
-                            `≈ ${amountInTWD(row)!.toFixed(0)}`
-                          )}
-                        </TableCell>
-                      )}
-                      <TableCell>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => setRows((prev) => prev.filter((_, idx) => idx !== i))}
-                        >
-                          刪除
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                      </div>
+                    </div>
+                    {multiCurrencyEnabled && (
+                      <p className="text-sm text-muted-foreground">
+                        換算 TWD：
+                        {amountInTWD(row) === null ? (
+                          <span className="text-destructive">尚未設定匯率</span>
+                        ) : (
+                          `≈ ${amountInTWD(row)!.toFixed(0)}`
+                        )}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
               <Button className="mt-2" onClick={() => setRows((prev) => [...prev, emptyRow()])}>
                 ＋ 新增一列
               </Button>
@@ -669,7 +776,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
 
             {/* 付款資訊：payeeInfo / requestedPaymentDate 兩個開關各自獨立控制，文字比照參考版型 */}
             {(optionalFields.payeeInfo || optionalFields.requestedPaymentDate) && (
-              <div className="grid grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-8">
                 {optionalFields.payeeInfo && (
                   <div>
                     <Label>受款人(第一次配合請提供銀行存摺)</Label>
