@@ -519,7 +519,22 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               </div>
               <div>
                 <Label>申請日期</Label>
-                <Input type="date" value={applicationDate} onChange={(e) => setApplicationDate(e.target.value)} />
+                <div className="flex gap-1">
+                  <Input
+                    type="date"
+                    className="min-w-0 flex-1"
+                    value={applicationDate}
+                    onChange={(e) => setApplicationDate(e.target.value)}
+                  />
+                  {/* 手機上的原生日期選擇器(iOS 滾輪、Android 對話框)通常沒有清除的功能，
+                      不像電腦版瀏覽器的日期欄位本身就有一個小 x 可以按——自己補一個清除
+                      按鈕，才能在手機上也把已經選的日期清掉，不用重新整理頁面繞過去。 */}
+                  {applicationDate && (
+                    <Button type="button" variant="outline" onClick={() => setApplicationDate("")}>
+                      清除
+                    </Button>
+                  )}
+                </div>
               </div>
               <div>
                 <Label>費用性質</Label>
@@ -587,7 +602,27 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                       </TableCell>
                       {optionalFields.invoiceDate && (
                         <TableCell>
-                          <Input type="date" value={row.invoiceDate ?? ""} onChange={(e) => updateRow(i, { invoiceDate: e.target.value })} />
+                          <div className="flex gap-1">
+                            <Input
+                              type="date"
+                              className="min-w-0 flex-1"
+                              value={row.invoiceDate ?? ""}
+                              onChange={(e) => updateRow(i, { invoiceDate: e.target.value })}
+                            />
+                            {/* 手機原生日期選擇器通常沒有清除功能，補一個按鈕；表格欄位窄，
+                                用圖示不用文字，跟旁邊「申請日期」那個獨立欄位的做法一致但省空間。 */}
+                            {row.invoiceDate && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                aria-label="清除發票日期"
+                                onClick={() => updateRow(i, { invoiceDate: "" })}
+                              >
+                                ✕
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       )}
                       {multiCurrencyEnabled && (
@@ -644,7 +679,19 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                 {optionalFields.requestedPaymentDate && (
                   <div>
                     <Label>需求付款日(如無指定-請填依公司規定)</Label>
-                    <Input type="date" value={requestedPaymentDate} onChange={(e) => setRequestedPaymentDate(e.target.value)} />
+                    <div className="flex gap-1">
+                      <Input
+                        type="date"
+                        className="min-w-0 flex-1"
+                        value={requestedPaymentDate}
+                        onChange={(e) => setRequestedPaymentDate(e.target.value)}
+                      />
+                      {requestedPaymentDate && (
+                        <Button type="button" variant="outline" onClick={() => setRequestedPaymentDate("")}>
+                          清除
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
