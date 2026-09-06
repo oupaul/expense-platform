@@ -32,6 +32,7 @@ platformAuthRouter.post("/login", async (req, res) => {
     companyId: null,
     role: "platform_admin",
     departmentId: null,
+    canViewAllReports: false,
   });
 
   res.json({ token, admin: { id: admin.id, name: admin.name, email: admin.email } });

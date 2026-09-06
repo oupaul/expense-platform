@@ -32,6 +32,15 @@ export function requireRole(...roles: string[]) {
   };
 }
 
+// 給「報表」跟「查看全公司申請單」用：admin 本來就什麼都能看，另外開放給
+// 被指定 canViewAllReports 的人(不一定是 admin，也不會因此拿到簽核或後台管理權限)。
+export function requireReportAccess(req: Request, res: Response, next: NextFunction) {
+  if (!req.auth || (req.auth.role !== "admin" && !req.auth.canViewAllReports)) {
+    return res.status(403).json({ error: "權限不足" });
+  }
+  next();
+}
+
 // 平台管理者(服務供應商)專用：管理租戶本身的路由用這個，不能用 requireSameCompany
 // (平台管理者的 token 沒有 companyId，本來就不該通過那個檢查)。
 export function requirePlatformAdmin(req: Request, res: Response, next: NextFunction) {

@@ -1,16 +1,16 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { requireAuth, requireSameCompany, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireSameCompany, requireReportAccess } from "../middleware/auth.js";
 
 // mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
 // 自己的路徑字面量推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
 type CompanyScoped = Request<{ companyId: string }>;
 
 // 租戶管理員視角的報表：各部門/費用類別支出總覽、簽核狀態分佈、月度趨勢。
-// 只有 admin 能看，跟其他後台管理功能的權限範圍一致。
+// admin，或被指定 canViewAllReports 的人都能看。
 export const reportsRouter = Router({ mergeParams: true });
-reportsRouter.use(requireAuth, requireSameCompany, requireRole("admin"));
+reportsRouter.use(requireAuth, requireSameCompany, requireReportAccess);
 
 const querySchema = z.object({
   from: z.coerce.date().optional(),

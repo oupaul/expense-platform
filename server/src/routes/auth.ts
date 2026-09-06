@@ -41,6 +41,7 @@ authRouter.post("/login", async (req, res) => {
     companyId: company.id,
     role: user.role,
     departmentId: user.departmentId,
+    canViewAllReports: user.canViewAllReports,
   });
 
   res.json({
@@ -53,6 +54,7 @@ authRouter.post("/login", async (req, res) => {
       departmentId: user.departmentId,
       companyId: company.id,
       companySlug: company.slug,
+      canViewAllReports: user.canViewAllReports,
     },
   });
 });

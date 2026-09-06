@@ -6,6 +6,7 @@ export interface AuthUser {
   departmentId: string | null;
   companyId: string;
   companySlug: string;
+  canViewAllReports: boolean;
 }
 
 export interface AuthState {

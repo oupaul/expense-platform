@@ -26,6 +26,9 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
   // 讓 DynamicExpenseForm 用既有內容預填、走 resubmit 而不是建立新的一張。
   const [editApplicationId, setEditApplicationId] = useState<string | null>(null);
   const isAdmin = auth.user.role === "admin";
+  // 報表跟「查看全部申請單」開放給 admin，或是被個別指定 canViewAllReports 的人——
+  // 這些人不會因此拿到後台管理(使用者/簽核關卡設定)或簽核的權限，純粹只能看。
+  const canViewReports = isAdmin || auth.user.canViewAllReports;
   // 品牌設定(分頁標題/圖示/顏色)要套用在整個已登入畫面，不能只放在某一個分頁裡面——
   // 不然使用者切到「後台管理」改了公司名稱/圖示，要跳回「填寫申請單」才會看到套用。
   const { data: config } = useCompanyConfig(auth.user.companySlug);
@@ -59,7 +62,7 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
         </button>
         {tabButton("my-applications", "我的申請")}
         {tabButton("approvals", "待簽核")}
-        {isAdmin && tabButton("reports", "報表")}
+        {canViewReports && tabButton("reports", "報表")}
         {isAdmin && tabButton("admin", "後台管理")}
         {tabButton("password", "修改密碼")}
         <span className="px-2 text-xs text-slate-400">{auth.user.name}({auth.user.role})</span>
@@ -93,7 +96,7 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
           <PendingApprovals auth={auth} />
         </div>
       )}
-      {tab === "reports" && isAdmin && (
+      {tab === "reports" && canViewReports && (
         <div className="min-h-screen bg-slate-50 print:hidden">
           <Suspense fallback={<div className="p-8 text-center text-muted-foreground">載入報表模組中…</div>}>
             <ReportsView auth={auth} />

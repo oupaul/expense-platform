@@ -8,6 +8,9 @@ export interface AuthPayload {
   companyId: string | null;
   role: string;
   departmentId: string | null;
+  // 跟 Company.active 的停用檢查一樣，只在登入時查一次寫進 token——admin 撤銷這個權限後，
+  // 要等對方的 token 自然過期(最長 8 小時)或重新登入才會生效，不做即時查庫。
+  canViewAllReports: boolean;
 }
 
 function getSecret(): string {

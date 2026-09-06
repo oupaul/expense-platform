@@ -157,8 +157,8 @@ applicationsRouter.get("/", async (req: CompanyScoped, res) => {
   const scope = req.query.scope === "pending" || req.query.scope === "all" ? req.query.scope : "mine";
   const auth = req.auth!;
 
-  if (scope === "all" && auth.role !== "admin") {
-    return res.status(403).json({ error: "只有管理員能查看全部申請單" });
+  if (scope === "all" && auth.role !== "admin" && !auth.canViewAllReports) {
+    return res.status(403).json({ error: "沒有查看全部申請單的權限" });
   }
 
   const where =

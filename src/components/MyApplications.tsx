@@ -34,7 +34,8 @@ function currentStageLabel(app: ApplicationListItem): string {
 }
 
 export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (applicationId: string) => void }) {
-  const isAdmin = auth.user.role === "admin";
+  // admin 或被個別指定 canViewAllReports 的人都能切到「全部申請」，跟報表分頁用同一組權限判斷。
+  const canViewAll = auth.user.role === "admin" || auth.user.canViewAllReports;
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -50,13 +51,13 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
     <div className="mx-auto max-w-4xl space-y-4 p-8">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">{scope === "mine" ? "我的申請" : "全部申請"}</h2>
-        {isAdmin && (
+        {canViewAll && (
           <div className="flex gap-2">
             <Button size="sm" variant={scope === "mine" ? "default" : "outline"} onClick={() => setScope("mine")}>
               我的申請
             </Button>
             <Button size="sm" variant={scope === "all" ? "default" : "outline"} onClick={() => setScope("all")}>
-              全部申請(admin)
+              全部申請
             </Button>
           </div>
         )}

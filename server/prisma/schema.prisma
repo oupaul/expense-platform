@@ -173,6 +173,11 @@ model User {
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
   active       Boolean     @default(true)
+  // 跟 role 分開的獨立權限旗標：role 同時也是簽核關卡比對用的 roleKey，
+  // 不能直接拿「查閱者」當一種 role，否則可能被某個簽核關卡的 roleKey 意外比對到，
+  // 變成憑空多了簽核權限。開了這個旗標的人可以看報表跟全公司的申請單，但不能簽核、
+  // 不能改後台設定。
+  canViewAllReports Boolean @default(false)
 
   applications   ExpenseApplication[] @relation("Applicant")
   approvalRecords ApprovalRecord[]

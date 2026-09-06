@@ -16,6 +16,7 @@ interface UserItem {
   role: string;
   departmentId: string | null;
   active: boolean;
+  canViewAllReports: boolean;
 }
 
 export function UserManager({ auth }: { auth: AuthState }) {
@@ -69,7 +70,13 @@ export function UserManager({ auth }: { auth: AuthState }) {
   // 角色/姓名/Email/部門都是同一支 PUT /:id 在改，共用一個 mutation 就好，
   // 不用每個欄位各開一個(改一個欄位要加一次 mutation 太瑣碎)。
   const updateMutation = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<UserItem, "name" | "email" | "role" | "departmentId">> }) =>
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: Partial<Pick<UserItem, "name" | "email" | "role" | "departmentId" | "canViewAllReports">>;
+    }) =>
       apiFetch(`${basePath}/${id}`, { method: "PUT", token: auth.token, body: patch }),
     onSuccess: invalidate,
     onError,
@@ -100,6 +107,7 @@ export function UserManager({ auth }: { auth: AuthState }) {
             <TableHead>部門</TableHead>
             <TableHead>角色</TableHead>
             <TableHead>狀態</TableHead>
+            <TableHead>查閱全公司報表</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -153,6 +161,17 @@ export function UserManager({ auth }: { auth: AuthState }) {
               </TableCell>
               <TableCell className={u.active ? "text-green-600" : "text-muted-foreground"}>
                 {u.active ? "啟用中" : "已停用"}
+              </TableCell>
+              <TableCell>
+                <Button
+                  size="sm"
+                  variant={u.canViewAllReports ? "default" : "outline"}
+                  onClick={() =>
+                    updateMutation.mutate({ id: u.id, patch: { canViewAllReports: !u.canViewAllReports } })
+                  }
+                >
+                  {u.canViewAllReports ? "已開放" : "開放查閱"}
+                </Button>
               </TableCell>
               <TableCell className="space-x-2">
                 <Button

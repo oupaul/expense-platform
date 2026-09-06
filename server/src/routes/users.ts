@@ -19,6 +19,7 @@ const userSelect = {
   role: true,
   departmentId: true,
   active: true,
+  canViewAllReports: true,
   createdAt: true,
 } as const;
 
@@ -74,6 +75,7 @@ const updateSchema = z.object({
   role: z.string().min(1).optional(),
   departmentId: z.string().nullable().optional(),
   active: z.boolean().optional(),
+  canViewAllReports: z.boolean().optional(),
 });
 
 // PUT /api/companies/:companyId/users/:id
