@@ -84,6 +84,11 @@ if [ -f "$UPLOADS_BACKUP" ]; then
   if [ "$RESTORE_UPLOADS" = "y" ] || [ "$RESTORE_UPLOADS" = "Y" ]; then
     rm -rf "$APP_DIR/server/uploads"
     tar xzf "$UPLOADS_BACKUP" -C "$APP_DIR/server"
+    # restore.sh 通常也是用 root/sudo 執行，解壓縮出來的檔案owner 不一定是實際跑
+    # API 服務的帳號，跟 backup.sh 裡校正 uploads/ 擁有者的理由一樣——用 .env 的
+    # 擁有者(install.sh 一定會 chown 給服務帳號)校正回來，不然還原完馬上又會撞
+    # EACCES。
+    chown -R --reference="$ENV_FILE" "$APP_DIR/server/uploads"
     echo "憑證附件已還原。"
   fi
 fi

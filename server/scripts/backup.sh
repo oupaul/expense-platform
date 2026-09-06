@@ -49,7 +49,13 @@ cp "$ENV_FILE" "$BACKUP_DIR/env-backup-$TIMESTAMP"
 chmod 600 "$BACKUP_DIR/env-backup-$TIMESTAMP"
 
 log "備份憑證附件..."
+# 這支腳本設計成放 cron 跑，通常是 root。如果 uploads/ 在這裡是第一次被建立
+# (例如還沒有人上傳過附件、備份排程就先跑了一次)，資料夾擁有者會是 root，
+# 之後 API 服務(以 install.sh 設定的服務帳號執行)要在裡面建立子資料夾就會撞
+# EACCES。用 server/.env 的擁有者(install.sh 一定會 chown 給服務帳號)校正回來，
+# 不管 uploads/ 是不是這裡才新建的、跑幾次都安全。
 mkdir -p "$APP_DIR/server/uploads"
+chown --reference="$ENV_FILE" "$APP_DIR/server/uploads"
 tar czf "$BACKUP_DIR/uploads-$TIMESTAMP.tar.gz" -C "$APP_DIR/server" uploads
 
 log "清理 $KEEP_DAYS 天前的舊備份..."

@@ -420,6 +420,12 @@ bash server/scripts/restore.sh 20260101-030000
 - **部署完打開網址只看到 nginx 內建的「Welcome to nginx!」**：`sites-enabled/default` 沒有被移除——
   它裡面是 `listen 80 default_server;`，優先權比我們自己的 site 設定高。`sudo rm -f
   /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl reload nginx` 就會改回正常。
+- **上傳憑證附件一律失敗、`journalctl` 看到 `EACCES: permission denied, mkdir '.../uploads/...'`**：
+  `server/uploads/` 目錄的擁有者不是實際跑 API 服務的帳號(常見情境是 `backup.sh`/`restore.sh`
+  用 root 執行、在真的有人上傳過附件之前就先把這個目錄以 root 身分建立/還原出來了)。用
+  `sudo chown -R <服務帳號>:<服務帳號> /srv/apps/expense-platform/server/uploads` 校正回來即可，
+  不用重啟服務。`backup.sh`/`restore.sh` 已經修正成每次都會自動校正這個目錄的擁有者，正常
+  不會再發生，除非有人手動用 root 在 `server/uploads/` 底下操作過。
 
 ---
 
