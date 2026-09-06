@@ -43,8 +43,10 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
     prisma.department.findMany({ where: { companyId } }),
     prisma.expenseCategory.findMany({ where: { companyId } }),
     prisma.expenseApplication.groupBy({
+      // 草稿不算「已經在跑簽核流程」的狀態，排除掉——不然這裡的圓餅圖會混進使用者
+      // 還沒寫完、根本還沒送出的東西，STATUS_LABEL 也沒有對應的中文標籤可以顯示。
       by: ["status"],
-      where: { companyId, ...dateRange },
+      where: { companyId, status: { not: "draft" }, ...dateRange },
       _sum: { totalAmountTWD: true },
       _count: { _all: true },
     }),
@@ -63,9 +65,12 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
   const departmentNameById = new Map(departments.map((d) => [d.id, d.name]));
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
 
+  // departmentId 在 schema 上是可以是 null 的(草稿狀態才會發生)，但這裡的查詢條件已經
+  // 限定 status: "approved"——申請單要能走到核准，一定是從 submit-draft 或直接建立送出
+  // 那條路徑過來的，兩者都強制檢查過 departmentId 一定有值，這裡用 ! 斷言是安全的。
   const byDepartment = byDepartmentRaw.map((row) => ({
-    departmentId: row.departmentId,
-    name: departmentNameById.get(row.departmentId) ?? "(未知部門)",
+    departmentId: row.departmentId!,
+    name: departmentNameById.get(row.departmentId!) ?? "(未知部門)",
     totalTWD: Number(row._sum.totalAmountTWD ?? 0),
     count: row._count._all,
   }));
@@ -87,7 +92,8 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
   // 不值得為了這個另外寫綁死 Postgres 方言的 date_trunc 查詢。
   const monthlyMap = new Map<string, number>();
   for (const app of approvedApps) {
-    const month = app.applicationDate.toISOString().slice(0, 7);
+    // 同上：已核准的申請單一定有 applicationDate，! 斷言安全。
+    const month = app.applicationDate!.toISOString().slice(0, 7);
     monthlyMap.set(month, (monthlyMap.get(month) ?? 0) + Number(app.totalAmountTWD));
   }
   const monthlyTrend = Array.from(monthlyMap.entries())

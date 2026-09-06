@@ -77,7 +77,7 @@ attachmentsRouter.post("/", (req, res, next) => {
   if (application.applicantId !== auth.userId) {
     return res.status(403).json({ error: "只有申請人本人能上傳附件" });
   }
-  if (application.status !== "pending" && application.status !== "returned") {
+  if (application.status !== "draft" && application.status !== "pending" && application.status !== "returned") {
     return res.status(409).json({ error: "此申請單已經完成簽核，無法再新增附件" });
   }
 
@@ -139,7 +139,7 @@ attachmentsRouter.delete("/:attachmentId", async (req: ScopedRequest, res) => {
   if (attachment.application.applicantId !== auth.userId) {
     return res.status(403).json({ error: "只有申請人本人能刪除附件" });
   }
-  if (attachment.application.status !== "pending" && attachment.application.status !== "returned") {
+  if (attachment.application.status !== "draft" && attachment.application.status !== "pending" && attachment.application.status !== "returned") {
     return res.status(409).json({ error: "此申請單已經完成簽核，無法刪除附件" });
   }
 

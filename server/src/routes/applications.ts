@@ -1,3 +1,5 @@
+import path from "node:path";
+import fs from "node:fs";
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -45,6 +47,66 @@ const createSchema = z.object({
 });
 
 type CreateData = z.infer<typeof createSchema>;
+
+// 草稿的驗證要寬鬆很多：部門/費用性質/費用明細都可以先空著，使用者可能只是先開一張單、
+// 什麼都還沒選就想存起來。但「如果有填」，還是要檢查 id 真的屬於這家公司——草稿也不該
+// 讓人塞別家公司的部門/類別 id 進來，這點跟正式送出的安全考量一樣，不能因為是草稿就放水。
+const draftItemSchema = z.object({
+  categoryId: z.string().optional(),
+  description: z.string().optional(),
+  date: z.coerce.date().optional(),
+  projectCode: z.string().max(10, "專案編號最多 10 碼").optional(),
+  invoiceDate: z.coerce.date().optional(),
+  currency: z.enum(ALL_CURRENCIES).default("TWD"),
+  amount: z.number().optional(),
+});
+
+const draftSchema = z.object({
+  departmentId: z.string().optional(),
+  expenseNatureId: z.string().optional(),
+  applicationDate: z.coerce.date().optional(),
+  purpose: z.string().optional(),
+  payeeName: z.string().optional(),
+  payeeBankInfo: z.record(z.string()).optional(),
+  requestedPaymentDate: z.coerce.date().optional(),
+  items: z.array(draftItemSchema).optional(),
+  applicantSignature: z.string().optional(),
+});
+
+type DraftData = z.infer<typeof draftSchema>;
+
+async function validateDraftInput(companyId: string, data: DraftData) {
+  const categoryIds = [...new Set((data.items ?? []).map((i) => i.categoryId).filter((id): id is string => !!id))];
+  const [department, nature, categories] = await Promise.all([
+    data.departmentId ? prisma.department.findFirst({ where: { id: data.departmentId, companyId } }) : null,
+    data.expenseNatureId ? prisma.expenseNature.findFirst({ where: { id: data.expenseNatureId, companyId } }) : null,
+    categoryIds.length > 0 ? prisma.expenseCategory.findMany({ where: { id: { in: categoryIds }, companyId } }) : [],
+  ]);
+  if (data.departmentId && !department) return { ok: false as const, status: 400, error: "部門不存在或不屬於此公司" };
+  if (data.expenseNatureId && !nature) return { ok: false as const, status: 400, error: "費用性質不存在或不屬於此公司" };
+  if (categories.length !== categoryIds.length) {
+    return { ok: false as const, status: 400, error: "有費用項目類別不存在或不屬於此公司" };
+  }
+  return { ok: true as const };
+}
+
+// 草稿裡「有選類別」的列才存進 ExpenseItem——categoryId 在資料庫是必填欄位(不能是
+// null)，還沒選類別的空白列本來就存不進去，這是資料庫層級的限制，不是漏做過濾。
+// 金額還沒填或幣別匯率還沒設定都不擋，先存 0，等真的送出(submit-draft)時才會嚴格驗證。
+function draftItemsToCreate(items: DraftData["items"]) {
+  return (items ?? [])
+    .filter((item) => item.categoryId)
+    .map((item) => ({
+      categoryId: item.categoryId!,
+      description: item.description,
+      date: item.date,
+      projectCode: item.projectCode,
+      invoiceDate: item.invoiceDate,
+      currency: item.currency,
+      amount: item.amount ?? 0,
+      amountInTWD: item.amount ?? 0,
+    }));
+}
 
 // department / 費用性質 / 每個費用項目的類別都要屬於同一家公司，否則有心人可以拿別家公司的 id
 // 硬塞進來(id 是全域唯一的 cuid，DB 層的外鍵擋不住跨公司關聯)。建立跟退回重新送出共用同一套檢查，
@@ -161,12 +223,13 @@ applicationsRouter.get("/", async (req: CompanyScoped, res) => {
     return res.status(403).json({ error: "沒有查看全部申請單的權限" });
   }
 
+  // scope=all/pending 刻意排除草稿——那是給「看公司整體業務量」用的，草稿還沒真的
+  // 進入簽核流程，也是使用者自己還沒寫完的內容，不該被別人(即使是查看全公司報表的人)
+  // 在這裡看到。scope=mine 不用另外擋，本來就只回自己的資料，看到自己的草稿是應該的。
   const where =
     scope === "mine"
       ? { companyId: req.params.companyId, applicantId: auth.userId }
-      : scope === "all"
-      ? { companyId: req.params.companyId }
-      : { companyId: req.params.companyId }; // pending 再用程式篩選當前關卡
+      : { companyId: req.params.companyId, status: { not: "draft" } }; // all/pending 都要排除草稿，pending 再用程式篩選當前關卡
 
   const applications = await prisma.expenseApplication.findMany({
     where,
@@ -208,7 +271,150 @@ applicationsRouter.get("/:id", async (req: CompanyScopedWithId, res) => {
     },
   });
   if (!application) return res.status(404).json({ error: "找不到申請單" });
+  // 草稿是使用者還沒寫完、還沒送出的內容，跟已經進入簽核流程的申請單不一樣，不能套用
+  // 「同公司都能看」這個既有的寬鬆權限——只有申請人自己或 admin 能看別人的草稿內容。
+  if (application.status === "draft" && application.applicantId !== req.auth!.userId && req.auth!.role !== "admin") {
+    return res.status(403).json({ error: "無權查看此草稿" });
+  }
   res.json(application);
+});
+
+// POST /api/companies/:companyId/applications/draft —— 建立一張新草稿，欄位幾乎都可以先空著。
+applicationsRouter.post("/draft", async (req: CompanyScoped, res) => {
+  const parsed = draftSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const companyId = req.params.companyId;
+  const data = parsed.data;
+
+  const validated = await validateDraftInput(companyId, data);
+  if (!validated.ok) return res.status(validated.status).json({ error: validated.error });
+
+  const application = await prisma.expenseApplication.create({
+    data: {
+      companyId,
+      applicantId: req.auth!.userId,
+      status: "draft",
+      departmentId: data.departmentId || undefined,
+      expenseNatureId: data.expenseNatureId || undefined,
+      applicationDate: data.applicationDate,
+      purpose: data.purpose,
+      payeeName: data.payeeName,
+      payeeBankInfo: data.payeeBankInfo,
+      requestedPaymentDate: data.requestedPaymentDate,
+      applicantSignature: data.applicantSignature,
+      items: { create: draftItemsToCreate(data.items) },
+    },
+    include: { items: true },
+  });
+  res.status(201).json(application);
+});
+
+// PUT /api/companies/:companyId/applications/:id/draft —— 整包覆蓋既有草稿內容。
+applicationsRouter.put("/:id/draft", async (req: CompanyScopedWithId, res) => {
+  const parsed = draftSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const auth = req.auth!;
+  const companyId = req.params.companyId;
+  const data = parsed.data;
+
+  const existing = await prisma.expenseApplication.findFirst({ where: { id: req.params.id, companyId } });
+  if (!existing) return res.status(404).json({ error: "找不到申請單" });
+  if (existing.applicantId !== auth.userId) return res.status(403).json({ error: "只有申請人本人能修改這張草稿" });
+  if (existing.status !== "draft") return res.status(409).json({ error: "此申請單不是草稿狀態，無法用這個方式更新" });
+
+  const validated = await validateDraftInput(companyId, data);
+  if (!validated.ok) return res.status(validated.status).json({ error: validated.error });
+
+  const application = await prisma.expenseApplication.update({
+    where: { id: existing.id },
+    data: {
+      departmentId: data.departmentId || null,
+      expenseNatureId: data.expenseNatureId || null,
+      applicationDate: data.applicationDate ?? null,
+      purpose: data.purpose,
+      payeeName: data.payeeName,
+      payeeBankInfo: data.payeeBankInfo,
+      requestedPaymentDate: data.requestedPaymentDate ?? null,
+      applicantSignature: data.applicantSignature || null,
+      items: { deleteMany: {}, create: draftItemsToCreate(data.items) },
+    },
+    include: { items: true },
+  });
+  res.json(application);
+});
+
+// DELETE /api/companies/:companyId/applications/:id/draft —— 刪除還不想要的草稿。
+// 只有草稿能被刪除——已經進入簽核流程的申請單是財務紀錄，不提供刪除功能。
+applicationsRouter.delete("/:id/draft", async (req: CompanyScopedWithId, res) => {
+  const auth = req.auth!;
+  const existing = await prisma.expenseApplication.findFirst({ where: { id: req.params.id, companyId: req.params.companyId } });
+  if (!existing) return res.status(404).json({ error: "找不到申請單" });
+  if (existing.applicantId !== auth.userId) return res.status(403).json({ error: "只有申請人本人能刪除這張草稿" });
+  if (existing.status !== "draft") return res.status(409).json({ error: "只能刪除草稿狀態的申請單" });
+
+  await prisma.expenseApplication.delete({ where: { id: existing.id } });
+  // 附件的實體檔案存在 uploads/:companyId/:applicationId/ 底下，onDelete: Cascade 已經把
+  // Attachment 的資料庫紀錄清掉了，這裡把整個資料夾一起砍掉，不留孤兒檔案佔空間。
+  fs.rm(path.join(process.cwd(), "uploads", req.params.companyId, req.params.id), { recursive: true, force: true }, () => {});
+  res.status(204).end();
+});
+
+const submitDraftSchema = createSchema;
+
+// POST /api/companies/:companyId/applications/:id/submit-draft —— 把草稿正式送出，
+// 這裡開始套用跟直接建立申請單一樣嚴格的驗證(部門/費用性質/簽名都變成必填)。
+applicationsRouter.post("/:id/submit-draft", async (req: CompanyScopedWithId, res) => {
+  const parsed = submitDraftSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const auth = req.auth!;
+  const companyId = req.params.companyId;
+  const data = parsed.data;
+
+  const existing = await prisma.expenseApplication.findFirst({ where: { id: req.params.id, companyId } });
+  if (!existing) return res.status(404).json({ error: "找不到申請單" });
+  if (existing.applicantId !== auth.userId) return res.status(403).json({ error: "只有申請人本人能送出這張草稿" });
+  if (existing.status !== "draft") return res.status(409).json({ error: "此申請單不是草稿狀態" });
+
+  const validated = await validateApplicationInput(companyId, data);
+  if (!validated.ok) return res.status(validated.status).json({ error: validated.error });
+  const { itemsWithConversion, totalAmountTWD } = validated;
+
+  const stages = await prisma.approvalStage.findMany({ where: { companyId, active: true }, orderBy: { stageOrder: "asc" } });
+  if (stages.length === 0) {
+    return res.status(400).json({ error: "此公司尚未設定簽核關卡，無法送出申請" });
+  }
+
+  const application = await prisma.expenseApplication.update({
+    where: { id: existing.id },
+    data: {
+      departmentId: data.departmentId,
+      expenseNatureId: data.expenseNatureId,
+      applicationDate: data.applicationDate,
+      purpose: data.purpose,
+      payeeName: data.payeeName,
+      payeeBankInfo: data.payeeBankInfo,
+      requestedPaymentDate: data.requestedPaymentDate,
+      applicantSignature: data.applicantSignature,
+      totalAmountTWD,
+      status: "pending",
+      items: {
+        deleteMany: {},
+        create: itemsWithConversion.map((item) => ({
+          categoryId: item.categoryId,
+          description: item.description,
+          date: item.date,
+          projectCode: item.projectCode,
+          invoiceDate: item.invoiceDate,
+          currency: item.currency,
+          amount: item.amount,
+          amountInTWD: item.amountInTWD as number,
+        })),
+      },
+      approvalRecords: { create: stages.map((stage) => ({ stageId: stage.id, status: "waiting" })) },
+    },
+    include: { items: true, approvalRecords: true },
+  });
+  res.status(200).json(application);
 });
 
 const decisionSchema = z

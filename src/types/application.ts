@@ -1,6 +1,8 @@
 export interface ApplicationListItem {
   id: string;
-  applicationDate: string;
+  // 草稿狀態下這幾個欄位可能還沒填，所以是 null——已經送出的申請單(pending 以後的狀態)
+  // 一定有值，是 submit-draft/建立時強制檢查過的。
+  applicationDate: string | null;
   purpose: string | null;
   totalAmountTWD: string;
   status: string;
@@ -8,7 +10,7 @@ export interface ApplicationListItem {
   returnedAt: string | null;
   returnedByStageLabel: string | null;
   applicant: { name: string };
-  department: { name: string };
+  department: { name: string } | null;
   approvalRecords: {
     id: string;
     status: string;
@@ -48,9 +50,10 @@ export interface ApprovalRecordDetail {
 
 export interface ApplicationDetail {
   id: string;
-  departmentId: string;
-  expenseNatureId: string;
-  applicationDate: string;
+  // 草稿狀態下這幾個欄位可能還沒填，所以是 null——已經送出的申請單一定有值。
+  departmentId: string | null;
+  expenseNatureId: string | null;
+  applicationDate: string | null;
   purpose: string | null;
   payeeName: string | null;
   payeeBankInfo: Record<string, string> | null;
@@ -61,8 +64,8 @@ export interface ApplicationDetail {
   returnedAt: string | null;
   returnedByStageLabel: string | null;
   applicant: { name: string; email: string };
-  department: { name: string };
-  expenseNature: { name: string };
+  department: { name: string } | null;
+  expenseNature: { name: string } | null;
   applicantSignature: string | null;
   items: ApplicationItemDetail[];
   approvalRecords: ApprovalRecordDetail[];

@@ -1,13 +1,14 @@
 import { Fragment, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationListItem } from "@/types/application";
 import { ApplicationDetail } from "@/components/ApplicationDetail";
 
 const STATUS_LABEL: Record<string, string> = {
+  draft: "草稿",
   pending: "審核中",
   approved: "已核准",
   rejected: "已駁回",
@@ -15,6 +16,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
+  draft: "text-muted-foreground",
   pending: "text-amber-600",
   approved: "text-green-600",
   rejected: "text-destructive",
@@ -24,8 +26,9 @@ const STATUS_COLOR: Record<string, string> = {
 // 目前輪到哪一關：從 approvalRecords 找第一個還在 waiting 的關卡標籤，
 // 讓申請人不用點進明細就知道卡在哪。退回後其他關卡可能還留著舊的 waiting 紀錄(重新
 // 送出前不會去動它)，所以要先判斷 returned/approved/rejected 這幾個終止狀態，
-// 不然會誤判成「還在等某一關簽核」。
+// 不然會誤判成「還在等某一關簽核」。草稿還沒進入簽核流程，approvalRecords 本來就是空的。
 function currentStageLabel(app: ApplicationListItem): string {
+  if (app.status === "draft") return "尚未送出";
   if (app.status === "approved") return "已全部核准";
   if (app.status === "rejected") return "已駁回";
   if (app.status === "returned") return `已被「${app.returnedByStageLabel}」退回`;
@@ -38,6 +41,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
   const canViewAll = auth.user.role === "admin" || auth.user.canViewAllReports;
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["applications", auth.user.companyId, scope],
@@ -45,6 +49,14 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
       apiFetch<ApplicationListItem[]>(`/companies/${auth.user.companyId}/applications?scope=${scope}`, {
         token: auth.token,
       }),
+  });
+
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteDraftMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/companies/${auth.user.companyId}/applications/${id}/draft`, { method: "DELETE", token: auth.token }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] }),
+    onError: (err) => setDeleteError(err instanceof ApiError ? err.message : "刪除失敗"),
   });
 
   return (
@@ -65,6 +77,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
 
       {isLoading && <div className="p-8 text-center text-muted-foreground">載入中…</div>}
       {isError && <div className="p-8 text-center text-destructive">載入失敗，請重新整理再試一次</div>}
+      {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
       {data && data.length === 0 && <div className="p-8 text-center text-muted-foreground">目前沒有任何申請單</div>}
 
       {data && data.length > 0 && (
@@ -82,29 +95,57 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
           <TableBody>
             {data.map((app) => {
               const expanded = expandedId === app.id;
+              const isDraft = app.status === "draft";
               return (
                 <Fragment key={app.id}>
                   <TableRow>
                     {scope === "all" && <TableCell>{app.applicant.name}</TableCell>}
-                    <TableCell>{app.department.name}</TableCell>
-                    <TableCell>{new Date(app.applicationDate).toLocaleDateString("zh-TW")}</TableCell>
+                    <TableCell>{app.department?.name ?? "-"}</TableCell>
+                    <TableCell>{app.applicationDate ? new Date(app.applicationDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
                     <TableCell>{app.totalAmountTWD}</TableCell>
                     <TableCell className={STATUS_COLOR[app.status] ?? ""}>
                       {STATUS_LABEL[app.status] ?? app.status}
                       <div className="text-xs text-muted-foreground">{currentStageLabel(app)}</div>
                     </TableCell>
                     <TableCell className="space-x-2">
-                      <Button size="sm" variant="outline" onClick={() => setExpandedId(expanded ? null : app.id)}>
-                        {expanded ? "收合" : "查看明細"}
-                      </Button>
-                      {scope === "mine" && app.status === "returned" && onEdit && (
-                        <Button size="sm" onClick={() => onEdit(app.id)}>
-                          編輯並重新送出
-                        </Button>
+                      {/* 草稿還沒真的送出，直接給「繼續編輯」/「刪除」，不提供「查看明細」——
+                          內容本來就不完整，用跟已送出申請單一樣的唯讀明細畫面意義不大。 */}
+                      {isDraft ? (
+                        <>
+                          {scope === "mine" && onEdit && (
+                            <Button size="sm" onClick={() => onEdit(app.id)}>
+                              繼續編輯
+                            </Button>
+                          )}
+                          {scope === "mine" && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={deleteDraftMutation.isPending}
+                              onClick={() => {
+                                setDeleteError(null);
+                                deleteDraftMutation.mutate(app.id);
+                              }}
+                            >
+                              刪除
+                            </Button>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => setExpandedId(expanded ? null : app.id)}>
+                            {expanded ? "收合" : "查看明細"}
+                          </Button>
+                          {scope === "mine" && app.status === "returned" && onEdit && (
+                            <Button size="sm" onClick={() => onEdit(app.id)}>
+                              編輯並重新送出
+                            </Button>
+                          )}
+                        </>
                       )}
                     </TableCell>
                   </TableRow>
-                  {expanded && (
+                  {expanded && !isDraft && (
                     <TableRow>
                       <TableCell colSpan={scope === "all" ? 6 : 5} className="p-0">
                         <ApplicationDetail auth={auth} applicationId={app.id} />

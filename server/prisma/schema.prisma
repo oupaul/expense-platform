@@ -202,12 +202,16 @@ model ExpenseApplication {
   company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   applicantId     String
   applicant       User            @relation("Applicant", fields: [applicantId], references: [id])
-  departmentId    String
-  department      Department      @relation(fields: [departmentId], references: [id])
-  expenseNatureId String
-  expenseNature   ExpenseNature   @relation(fields: [expenseNatureId], references: [id])
+  // 部門/費用性質/申請日期在「草稿」狀態下可以是空的(使用者可能只是先開一張單、
+  // 部門都還沒選就存了)，所以放寬成可為 null；真正送出(status 從 draft 轉成 pending)
+  // 時才要求這幾個欄位一定要有值，那道檢查在 routes/applications.ts 的 submit-draft
+  // 路由做，不是靠資料庫層級的 NOT NULL 擋。
+  departmentId    String?
+  department      Department?     @relation(fields: [departmentId], references: [id])
+  expenseNatureId String?
+  expenseNature   ExpenseNature?  @relation(fields: [expenseNatureId], references: [id])
 
-  applicationDate DateTime
+  applicationDate DateTime?
   purpose         String?
 
   // optionalFields 開啟時才會用到，未開啟則為 null
@@ -216,7 +220,7 @@ model ExpenseApplication {
   requestedPaymentDate DateTime?
 
   totalAmountTWD Decimal @default(0) @db.Decimal(12, 2)
-  status         String  @default("pending") // pending / approved / rejected / returned
+  status         String  @default("pending") // draft / pending / approved / rejected / returned
 
   // 申請人送出時的電子簽名(手寫或上傳)，存 base64 data URL。
   applicantSignature String? @db.Text

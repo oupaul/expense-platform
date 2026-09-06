@@ -62,9 +62,12 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
       <div className="flex items-start justify-between gap-2">
         <div className="grid grow grid-cols-2 gap-2 text-sm md:grid-cols-4">
           <div><span className="text-muted-foreground">申請人：</span>{data.applicant.name}({data.applicant.email})</div>
-          <div><span className="text-muted-foreground">部門：</span>{data.department.name}</div>
-          <div><span className="text-muted-foreground">費用性質：</span>{data.expenseNature.name}</div>
-          <div><span className="text-muted-foreground">申請日期：</span>{new Date(data.applicationDate).toLocaleDateString("zh-TW")}</div>
+          <div><span className="text-muted-foreground">部門：</span>{data.department?.name ?? "-"}</div>
+          <div><span className="text-muted-foreground">費用性質：</span>{data.expenseNature?.name ?? "-"}</div>
+          <div>
+            <span className="text-muted-foreground">申請日期：</span>
+            {data.applicationDate ? new Date(data.applicationDate).toLocaleDateString("zh-TW") : "-"}
+          </div>
         </div>
         <Button size="sm" variant="outline" className="print:hidden" onClick={() => window.print()}>
           📄 列印 / 匯出 PDF
@@ -175,9 +178,9 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
             <PrintableApplicationForm
               branding={config.branding}
               applicantName={data.applicant.name}
-              departmentName={data.department.name}
-              applicationDate={new Date(data.applicationDate).toLocaleDateString("zh-TW")}
-              expenseNatureName={data.expenseNature.name}
+              departmentName={data.department?.name ?? ""}
+              applicationDate={data.applicationDate ? new Date(data.applicationDate).toLocaleDateString("zh-TW") : ""}
+              expenseNatureName={data.expenseNature?.name ?? ""}
               optionalFields={printOptionalFields}
               multiCurrencyEnabled={printMultiCurrencyEnabled}
               rows={printRows}
