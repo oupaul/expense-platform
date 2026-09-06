@@ -14,5 +14,8 @@ export function useCompanyConfig(companyId: string) {
     queryKey: ["company-config", companyId],
     queryFn: () => fetchCompanyConfig(companyId),
     staleTime: 5 * 60 * 1000, // 品牌/選項資料不常變動，快取 5 分鐘即可
+    // 登入頁在使用者打公司代號時就會用這支 hook 即時查詢，字還沒打完(空字串)
+    // 不該真的送出一個 /api/companies//config 這種畸形的請求。
+    enabled: !!companyId,
   });
 }

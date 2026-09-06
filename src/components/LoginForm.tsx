@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
+import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 
 interface Props {
   onLogin: (companySlug: string, email: string, password: string) => Promise<unknown>;
@@ -21,6 +22,17 @@ export function LoginForm({ onLogin }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // 登入頁的標題要跟著使用者正在打的公司代號走(客戶要求：每家租戶登入頁看到的名稱要是
+  // 自己公司的名字，不是寫死的通用系統名稱)。用打字時 debounce 一下再查，不要每打一個字
+  // 就送一次請求；公司代號打錯字/查無此公司就靜靜地掉回通用標題，不用跳錯誤訊息干擾輸入。
+  const [debouncedSlug, setDebouncedSlug] = useState(companySlug);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSlug(companySlug.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [companySlug]);
+  const { data: config } = useCompanyConfig(debouncedSlug);
+  const heading = config?.branding.name ? `${config.branding.name} 登入` : "費用申請系統登入";
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -37,7 +49,7 @@ export function LoginForm({ onLogin }: Props) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100">
       <form onSubmit={handleSubmit} className="w-80 space-y-4 rounded-lg bg-white p-8 shadow">
-        <h1 className="text-lg font-bold">費用申請系統登入</h1>
+        <h1 className="text-lg font-bold">{heading}</h1>
         <div>
           <Label>公司代號</Label>
           <Input value={companySlug} onChange={(e) => setCompanySlug(e.target.value)} placeholder="例如 acme" />
