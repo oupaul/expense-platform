@@ -251,10 +251,21 @@ log "$SERVICE_NAME 運作中。"
 
 # ── 7. nginx ───────────────────────────────────────────────
 log "設定 nginx..."
+
+# Ubuntu 的 nginx 套件裝好預設就會啟用一個 sites-enabled/default，裡面是
+# `listen 80 default_server;`——不管我們自己的 site 有沒有裝好、有沒有連進
+# sites-enabled/，這個預設站台的 default_server 優先權都比較高，導致瀏覽器
+# 打開網址看到的是 nginx 內建的「Welcome to nginx!」，不是我們的前端。
+# 一定要把它拿掉，不能只是加自己的設定進去就以為完成了。
+if [ -e /etc/nginx/sites-enabled/default ]; then
+  log "移除 nginx 預設站台(sites-enabled/default)，不然它的 default_server 會蓋過我們的設定..."
+  rm -f /etc/nginx/sites-enabled/default
+fi
+
 SERVER_NAME="${DOMAIN:-_}"
 cat > "/etc/nginx/sites-available/expense-platform" <<EOF
 server {
-    listen 80;
+    listen 80 default_server;
     server_name $SERVER_NAME;
 
     root $APP_DIR/dist;

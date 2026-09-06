@@ -214,7 +214,7 @@ sudo systemctl status expense-platform-api
 
 ```nginx
 server {
-    listen 80;
+    listen 80 default_server;
     server_name <你的網域>;
 
     root /srv/apps/expense-platform/dist;
@@ -260,6 +260,10 @@ server {
 ```
 
 ```bash
+# nginx 裝好預設會啟用 sites-enabled/default，裡面是 listen 80 default_server;——
+# 不移除的話它的優先權比我們自己的設定高，瀏覽器打開會看到 nginx 內建的
+# 「Welcome to nginx!」，不是我們的前端(這是實際踩過的坑，不是理論上的可能性)。
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo ln -s /etc/nginx/sites-available/expense-platform /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
@@ -400,6 +404,9 @@ bash server/scripts/restore.sh 20260101-030000
 - **`prisma migrate deploy` 失敗**：先看錯誤訊息是不是 migration 檔跟資料庫現況不一致(例如有人手動改過
   資料庫結構)，必要時要用 `npx prisma migrate resolve` 手動標記，不要在正式環境用 `migrate reset`(會清空
   資料庫)。
+- **部署完打開網址只看到 nginx 內建的「Welcome to nginx!」**：`sites-enabled/default` 沒有被移除——
+  它裡面是 `listen 80 default_server;`，優先權比我們自己的 site 設定高。`sudo rm -f
+  /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl reload nginx` 就會改回正常。
 
 ---
 
