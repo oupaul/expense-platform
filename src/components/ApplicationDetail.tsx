@@ -187,6 +187,7 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
               }
               total={Number(data.totalAmountTWD)}
               signatureBoxes={signatureBoxes}
+              rowsPerPage={config.printRowsPerPage}
             />
           </div>,
           document.body

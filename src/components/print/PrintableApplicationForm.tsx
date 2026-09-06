@@ -35,15 +35,20 @@ interface Props {
   // 兩種情境的資料來源完全不同(前者是即時表單狀態，後者是已存檔的簽核紀錄)，
   // 讓元件收現成的陣列比自己內部判斷簡單、也不用另外分辨兩種情境。
   signatureBoxes: PrintableSignatureBox[];
+  // 每頁最多幾筆費用明細，超過就分頁——來自 Company.printRowsPerPage(後台「公司設定」
+  // 可調)，不是這個元件自己寫死的數字，因為多少筆合理跟每家公司「說明」欄位習慣填多長
+  // 高度相關(見下面 DEFAULT_ROWS_PER_PAGE 的實測筆記)，不同客戶可能想要不同的值。
+  rowsPerPage: number;
 }
 
-// 實測過(本機量測，含合計/受款人/需求付款日/簽核欄)：說明欄位是一般短文字、不換行時，
-// 一頁 A4 實際可以放到 16 筆左右才會超出可印刷高度(297mm 扣掉上下 15mm 邊界)；
-// 但「說明」欄位長度是使用者自由輸入，一旦長到在儲存格裡換成兩行，每筆的高度會從
-// 約 33px 跳到約 53px，16 筆的極限一下就會被吃光、變成勉強塞進去或被 usePrintFit
-// 縮到字很小。改用 12 筆(短文字時只用掉約 875/1009 px 的版面，留了足夠的緩衝空間
-// 給換行的說明文字)，真的超出的極端情況再交給 usePrintFit 整頁縮放兜底。
-const ROWS_PER_PAGE = 12;
+// 沒有從呼叫端拿到 rowsPerPage 時的保底值(理論上不會發生，兩個呼叫端都固定會帶公司設定
+// 過來)。這個數字是實測過的(本機量測，含合計/受款人/需求付款日/簽核欄)：說明欄位是一般
+// 短文字、不換行時，一頁 A4 實際可以放到 16 筆左右才會超出可印刷高度(297mm 扣掉上下 15mm
+// 邊界)；但「說明」欄位長度是使用者自由輸入，一旦長到在儲存格裡換成兩行，每筆的高度會從
+// 約 33px 跳到約 53px，16 筆的極限一下就會被吃光。12 筆時短文字只用掉約 875/1009px 的
+// 版面，留了足夠的緩衝空間給換行的說明文字，真的超出的極端情況再交給 usePrintFit 整頁
+// 縮放兜底。
+const DEFAULT_ROWS_PER_PAGE = 12;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   if (arr.length === 0) return [[]];
@@ -53,9 +58,9 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 // 列印/PDF 輸出版面 —— 沿用參考版型(舊 hzt-expense 系統)的列印原則：
-// 超過 12 筆費用明細就分頁，每頁重複公司頁首，只有最後一頁接合計/受款人/簽核欄；
-// 12 筆以內則整體縮放塞進一張 A4(見 usePrintFit)。畫面本身平常是隱藏的，只有
-// 瀏覽器進入列印模式(.print-block 由 Tailwind 的 `print:` 變體控制)才會顯示。
+// 超過 rowsPerPage 筆費用明細就分頁，每頁重複公司頁首，只有最後一頁接合計/受款人/
+// 簽核欄；筆數在門檻以內則整體縮放塞進一張 A4(見 usePrintFit)。畫面本身平常是隱藏的，
+// 只有瀏覽器進入列印模式(.print-block 由 Tailwind 的 `print:` 變體控制)才會顯示。
 export function PrintableApplicationForm(props: Props) {
   const {
     branding,
@@ -70,10 +75,11 @@ export function PrintableApplicationForm(props: Props) {
     requestedPaymentDate,
     total,
     signatureBoxes,
+    rowsPerPage,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const pages = chunk(rows, ROWS_PER_PAGE);
+  const pages = chunk(rows, rowsPerPage || DEFAULT_ROWS_PER_PAGE);
   const isPaginated = pages.length > 1;
   usePrintFit(containerRef, !isPaginated);
 

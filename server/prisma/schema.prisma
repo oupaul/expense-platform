@@ -69,6 +69,12 @@ model Company {
   multiCurrencyEnabled Boolean @default(false)
   optionalFields       Json    @default("{\"projectCode\":false,\"invoiceDate\":false,\"payeeInfo\":false,\"requestedPaymentDate\":false}")
 
+  // 列印/PDF 每頁最多幾筆費用明細，超過就分頁。純粹是版面偏好，跟 optionalFields 不同，
+  // 不需要照每張申請單當初送出時的設定「凍結」——改了之後舊申請單一樣套用新數字重印。
+  // 實測(見 PrintableApplicationForm.tsx)：說明欄位短文字不換行時，一頁 A4 大約能放到
+  // 16 筆左右就會超出可印刷高度，超過這個數字風險是被 usePrintFit 縮到字很小。
+  printRowsPerPage Int @default(12)
+
   departments       Department[]
   expenseCategories ExpenseCategory[]
   expenseNatures    ExpenseNature[]

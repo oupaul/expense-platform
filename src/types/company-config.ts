@@ -44,6 +44,7 @@ export interface CompanyFormConfig {
   branding: Branding;
   multiCurrencyEnabled: boolean;
   optionalFields: OptionalFields;
+  printRowsPerPage: number;
   departments: SelectOption[];
   expenseNatures: SelectOption[];
   expenseCategories: ExpenseCategoryOption[];

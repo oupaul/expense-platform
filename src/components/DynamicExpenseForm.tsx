@@ -118,7 +118,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     return <div className="p-8 text-center text-destructive">表單設定載入失敗，請重新整理再試一次</div>;
   }
 
-  const { branding, optionalFields, departments, expenseNatures, expenseCategories, approvalStages, multiCurrencyEnabled, exchangeRates } = config;
+  const { branding, optionalFields, departments, expenseNatures, expenseCategories, approvalStages, multiCurrencyEnabled, exchangeRates, printRowsPerPage } = config;
 
   const rateByCurrency = new Map<string, number>([["TWD", 1], ...exchangeRates.map((r) => [r.currency, Number(r.rateToTWD)] as const)]);
   const amountInTWD = (row: ExpenseRowState) => {
@@ -257,6 +257,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
             { id: "applicant", label: "申請人", signature: applicantSignature },
             ...approvalStages.map((s) => ({ id: s.id, label: s.label })),
           ]}
+          rowsPerPage={printRowsPerPage}
         />
       </div>
       <div className="min-h-screen bg-slate-100 p-5 print:hidden">

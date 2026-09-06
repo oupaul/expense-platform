@@ -49,6 +49,17 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
     onError,
   });
 
+  const printRowsPerPageMutation = useMutation({
+    mutationFn: (printRowsPerPage: number) =>
+      apiFetch(`/companies/${auth.user.companyId}/settings`, {
+        method: "PUT",
+        token: auth.token,
+        body: { printRowsPerPage },
+      }),
+    onSuccess: invalidate,
+    onError,
+  });
+
   return (
     <div className="space-y-3">
       <h3 className="font-semibold">公司設定</h3>
@@ -111,6 +122,27 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
             {label}
           </label>
         ))}
+      </div>
+
+      <div className="border-t pt-3">
+        <Label>列印/PDF 每頁最多幾筆費用明細(1-20，超過就自動分頁)</Label>
+        <Input
+          type="number"
+          min={1}
+          max={20}
+          className="w-24"
+          defaultValue={config.printRowsPerPage}
+          onBlur={(e) => {
+            const value = Number(e.target.value);
+            if (Number.isInteger(value) && value >= 1 && value <= 20 && value !== config.printRowsPerPage) {
+              printRowsPerPageMutation.mutate(value);
+            }
+          }}
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          實測若「說明」欄位都是短文字，一頁 A4 大約可以放到 16 筆左右；如果常常填寫較長的說明文字建議調低，
+          避免每筆換行擠爆版面。預設 12 筆是留有安全空間的折衷值。
+        </p>
       </div>
     </div>
   );

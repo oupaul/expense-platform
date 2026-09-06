@@ -36,6 +36,7 @@ companiesRouter.get("/:slug/config", async (req, res) => {
     },
     multiCurrencyEnabled: company.multiCurrencyEnabled,
     optionalFields: company.optionalFields,
+    printRowsPerPage: company.printRowsPerPage,
     departments: company.departments.map((d) => ({ id: d.id, name: d.name })),
     expenseNatures: company.expenseNatures.map((n) => ({ id: n.id, name: n.name })),
     expenseCategories: company.expenseCategories.map((c) => ({
@@ -67,6 +68,9 @@ const settingsSchema = z.object({
   nameEn: z.string().optional(),
   // 瀏覽器分頁圖示(favicon)網址；空字串代表清掉、改回預設圖示，所以額外接受 ""。
   logoUrl: z.union([z.string().url(), z.literal("")]).optional(),
+  // 上限抓 20：實測短文字時一頁 A4 大約能放到 16 筆左右就會超出可印刷高度，
+  // 抓 20 留一點彈性給文字特別短的公司，超過這個數字的極端情況交給 usePrintFit 兜底縮放。
+  printRowsPerPage: z.number().int().min(1).max(20).optional(),
 });
 
 // PUT /api/companies/:companyId/settings  （用 companyId 而非 slug，跟其他後台管理路由一致）
@@ -105,6 +109,7 @@ companiesRouter.put(
       logoUrl: company.logoUrl,
       multiCurrencyEnabled: company.multiCurrencyEnabled,
       optionalFields: company.optionalFields,
+      printRowsPerPage: company.printRowsPerPage,
     });
   }
 );
