@@ -1,4 +1,5 @@
 import "express-async-errors";
+import path from "node:path";
 import express from "express";
 import cors from "cors";
 import { z } from "zod";
@@ -26,6 +27,14 @@ app.use(cors());
 app.use(pinoHttp());
 // 預設 100kb 對簽名圖檔(base64)太小，手寫簽名/上傳的簽名檔都要能塞得下。
 app.use(express.json({ limit: "5mb" }));
+
+// 公司 Logo/瀏覽器分頁圖示——唯一不需要登入就能存取的上傳檔案目錄，因為瀏覽器原生載入
+// <link rel="icon"> 不會帶我們自訂的 Authorization header。刻意只掛這一個子目錄，
+// 不是整個 uploads/(憑證附件必須維持要登入才看得到)。
+app.use(
+  "/public/company-logos",
+  express.static(path.join(process.cwd(), "uploads", "company-logos"))
+);
 
 app.use("/api/auth", authRouter);
 app.use("/api/platform-auth", platformAuthRouter);

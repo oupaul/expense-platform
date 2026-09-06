@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch, apiUploadFile, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { CompanyFormConfig, OptionalFields } from "@/types/company-config";
 
@@ -49,6 +49,13 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
     onError,
   });
 
+  const logoUploadMutation = useMutation({
+    mutationFn: (file: File) =>
+      apiUploadFile<{ logoUrl: string }>(`/companies/${auth.user.companyId}/logo`, "logo", file, auth.token),
+    onSuccess: invalidate,
+    onError,
+  });
+
   const printRowsPerPageMutation = useMutation({
     mutationFn: (printRowsPerPage: number) =>
       apiFetch(`/companies/${auth.user.companyId}/settings`, {
@@ -87,8 +94,32 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
           />
         </div>
         <div className="col-span-2">
-          <Label>瀏覽器分頁圖示網址(favicon，選填，留空還原成預設圖示)</Label>
+          <Label>瀏覽器分頁圖示(favicon，選填，留空還原成預設圖示)</Label>
+          <div className="flex items-center gap-3">
+            {config.branding.logoUrl && (
+              <img
+                src={config.branding.logoUrl}
+                alt="目前的圖示"
+                className="h-8 w-8 rounded border object-contain"
+              />
+            )}
+            <Input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="w-auto"
+              disabled={logoUploadMutation.isPending}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) logoUploadMutation.mutate(file);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            上傳圖片檔案(PNG/JPEG/WEBP)會自動轉成 PNG、縮到 256x256 以內。也可以直接貼外部圖片網址：
+          </p>
           <Input
+            className="mt-1"
             defaultValue={config.branding.logoUrl ?? ""}
             placeholder="https://example.com/favicon.png"
             onBlur={(e) => {

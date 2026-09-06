@@ -64,6 +64,24 @@ export async function apiUpload<T>(path: string, files: File[], token: string | 
   return data as T;
 }
 
+// 單檔上傳、欄位名稱是呼叫端自己決定的(不像上面的附件固定用 "files")——
+// 公司 Logo 上傳用的是後端 multer 設定的 "logo" 這個欄位名稱。
+export async function apiUploadFile<T>(path: string, fieldName: string, file: File, token: string | null): Promise<T> {
+  const formData = new FormData();
+  formData.append(fieldName, file);
+  const res = await fetchWithTimeout(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: formData,
+  });
+  const data = await res.json().catch(() => undefined);
+  if (!res.ok) {
+    const message = data?.error && typeof data.error === "string" ? data.error : `請求失敗 (${res.status})`;
+    throw new ApiError(message);
+  }
+  return data as T;
+}
+
 // 憑證附件需要登入才能看，不能直接用 <img src="...">(無法帶 Authorization header)，
 // 也不想把 token 塞進網址(會留在瀏覽器歷史記錄、referrer、伺服器 log 裡)。
 // 改用帶 header 的 fetch 把檔案拉回來，轉成本機 blob: URL 給 <img>/新分頁使用。

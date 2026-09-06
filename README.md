@@ -207,6 +207,13 @@ server {
         client_max_body_size 60M;
     }
 
+    # 公司 Logo/瀏覽器分頁圖示的公開靜態路徑(見 server/src/index.ts)，一樣要轉給後端，
+    # 不需要登入就能存取——瀏覽器原生載入 <link rel="icon"> 不會帶 Authorization header。
+    location /public/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_set_header Host $host;
+    }
+
     location / {
         try_files $uri /index.html;
     }

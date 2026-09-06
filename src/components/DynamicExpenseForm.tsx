@@ -329,7 +329,13 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                     <TableHead>費用項目</TableHead>
                     {showProjectCodeColumn && <TableHead>專案編號</TableHead>}
                     <TableHead>說明</TableHead>
-                    {optionalFields.invoiceDate && <TableHead>發票日期(個人代墊費用可不填)</TableHead>}
+                    {optionalFields.invoiceDate && (
+                      <TableHead className="whitespace-nowrap">
+                        發票日期
+                        <br />
+                        <span className="text-xs font-normal">(個人代墊費用可不填)</span>
+                      </TableHead>
+                    )}
                     {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
                     <TableHead>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
                     {multiCurrencyEnabled && <TableHead>換算 TWD</TableHead>}

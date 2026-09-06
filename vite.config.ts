@@ -9,6 +9,8 @@ export default defineConfig({
     proxy: {
       // 開發時前端(8080)跟後端(4000)分開跑，用 proxy 避免額外處理 CORS。
       "/api": "http://localhost:4000",
+      // 公司 Logo/瀏覽器分頁圖示的公開靜態路徑，一樣要轉給後端(見 server/src/index.ts)。
+      "/public": "http://localhost:4000",
     },
   },
   plugins: [react()],
