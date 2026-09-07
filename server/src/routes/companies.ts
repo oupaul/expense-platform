@@ -64,6 +64,7 @@ companiesRouter.get("/:slug/config", async (req, res) => {
       name: company.name,
       nameEn: company.nameEn ?? undefined,
       logoUrl: company.logoUrl ?? undefined,
+      appUrl: company.appUrl ?? undefined,
       primaryColor: company.primaryColor,
       headerBgColor: company.headerBgColor,
       gradientFrom: company.gradientFrom,
@@ -108,6 +109,8 @@ const settingsSchema = z.object({
   // 上限抓 20：實測短文字時一頁 A4 大約能放到 16 筆左右就會超出可印刷高度，
   // 抓 20 留一點彈性給文字特別短的公司，超過這個數字的極端情況交給 usePrintFit 兜底縮放。
   printRowsPerPage: z.number().int().min(1).max(20).optional(),
+  // email 通知裡「查看並簽核」連結要用的網址，空字串代表清掉(信件退回純文字、不放連結)。
+  appUrl: z.union([z.string().url(), z.literal("")]).optional(),
 });
 
 // PUT /api/companies/:companyId/settings  （用 companyId 而非 slug，跟其他後台管理路由一致）
@@ -127,7 +130,7 @@ companiesRouter.put(
 
     // optionalFields 存在 Company 上的單一 JSON 欄位裡，這裡只更新有帶到的欄位，
     // 沒帶到的維持原樣，不能直接整包覆蓋掉沒動到的開關。
-    const { optionalFields, logoUrl, ...rest } = parsed.data;
+    const { optionalFields, logoUrl, appUrl, ...rest } = parsed.data;
     const mergedOptionalFields = optionalFields
       ? { ...(existing.optionalFields as Record<string, boolean>), ...optionalFields }
       : undefined;
@@ -137,6 +140,7 @@ companiesRouter.put(
       data: {
         ...rest,
         ...(logoUrl !== undefined ? { logoUrl: logoUrl || null } : {}),
+        ...(appUrl !== undefined ? { appUrl: appUrl || null } : {}),
         ...(mergedOptionalFields ? { optionalFields: mergedOptionalFields } : {}),
       },
     });
@@ -144,6 +148,7 @@ companiesRouter.put(
       name: company.name,
       nameEn: company.nameEn,
       logoUrl: company.logoUrl,
+      appUrl: company.appUrl,
       multiCurrencyEnabled: company.multiCurrencyEnabled,
       optionalFields: company.optionalFields,
       printRowsPerPage: company.printRowsPerPage,

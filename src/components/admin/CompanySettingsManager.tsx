@@ -32,7 +32,7 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
   });
 
   const brandingMutation = useMutation({
-    mutationFn: (patch: { name?: string; nameEn?: string; logoUrl?: string }) =>
+    mutationFn: (patch: { name?: string; nameEn?: string; logoUrl?: string; appUrl?: string }) =>
       apiFetch(`/companies/${auth.user.companyId}/settings`, { method: "PUT", token: auth.token, body: patch }),
     onSuccess: invalidate,
     onError,
@@ -127,6 +127,21 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
               if (value !== (config.branding.logoUrl ?? "")) brandingMutation.mutate({ logoUrl: value });
             }}
           />
+        </div>
+        <div className="col-span-2">
+          <Label>系統網址(選填)</Label>
+          <Input
+            defaultValue={config.branding.appUrl ?? ""}
+            placeholder="https://your-domain.com"
+            onBlur={(e) => {
+              const value = e.target.value.trim();
+              if (value !== (config.branding.appUrl ?? "")) brandingMutation.mutate({ appUrl: value });
+            }}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            填了的話，email 通知裡會附上「查看並簽核」的連結直接連到這個網址；留空的話信件
+            就只有文字說明，沒有連結。
+          </p>
         </div>
       </div>
 

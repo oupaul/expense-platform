@@ -12,6 +12,7 @@ export interface Branding {
   name: string;
   nameEn?: string;
   logoUrl?: string;
+  appUrl?: string;
   primaryColor: string;
   headerBgColor: string;
   gradientFrom: string;
