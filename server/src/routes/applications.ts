@@ -476,9 +476,16 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
   const applicationStatus =
     action === "reject" ? "rejected" : action === "return" ? "returned" : isLastStage ? "approved" : "pending";
 
-  await prisma.$transaction([
-    prisma.approvalRecord.update({
-      where: { id: currentRecord.id },
+  // 上面讀出 currentRecord 到這裡執行寫入之間有一段時間差——如果同一關有兩個人(例如兩個
+  // finance 帳號)幾乎同時各按一次簽核，或同一個人手滑點兩下/網路重試，兩個請求都會讀到
+  // 同一筆 status="waiting" 的紀錄、都通過前面的檢查，若直接用 update(where:{id})覆寫，
+  // 後寫入的那個會蓋掉先寫入的結果(甚至可能一個核准一個駁回，兩次都「成功」)。
+  // 用 updateMany 帶 status:"waiting" 當條件做 compare-and-swap：只有真正搶到「這筆還是
+  // waiting」的那個請求會真的寫入(count 為 1)，慢一步的請求 count 會是 0，回報 409 讓
+  // 使用者知道這張申請單剛剛已經被別人處理過，而不是讓資料被靜默地重複寫入或覆蓋。
+  const conflict = await prisma.$transaction(async (tx) => {
+    const updated = await tx.approvalRecord.updateMany({
+      where: { id: currentRecord.id, status: "waiting" },
       data: {
         status: recordStatus,
         approverId: auth.userId,
@@ -486,8 +493,10 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
         signatureImage,
         signedAt: new Date(),
       },
-    }),
-    prisma.expenseApplication.update({
+    });
+    if (updated.count === 0) return true;
+
+    await tx.expenseApplication.update({
       where: { id: application.id },
       data: {
         status: applicationStatus,
@@ -495,8 +504,12 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
           ? { returnComment: comment, returnedAt: new Date(), returnedByStageLabel: currentRecord.stage.label }
           : {}),
       },
-    }),
-  ]);
+    });
+    return false;
+  });
+  if (conflict) {
+    return res.status(409).json({ error: "此申請單剛剛已經被處理過，請重新整理後再確認一次" });
+  }
 
   const nextStage = application.approvalRecords[currentIndex + 1]?.stage;
   fireNotification(
