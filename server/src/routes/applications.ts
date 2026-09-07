@@ -7,6 +7,7 @@ import { requireAuth, requireSameCompany } from "../middleware/auth.js";
 import { ALL_CURRENCIES } from "../constants.js";
 import { attachmentsRouter } from "./attachments.js";
 import { notifySubmission, notifyDecision } from "../services/notifications.js";
+import { canViewApplication } from "../services/applicationAccess.js";
 
 // 通知(站內鈴鐺清單 + email)刻意不 await、只掛一個 .catch() 吞掉錯誤：申請單本身有沒有
 // 送出/簽核成功，跟通知寄不寄得出去是兩件事，不該讓 SMTP 連線慢/失敗拖慢或搞壞這個
@@ -281,10 +282,10 @@ applicationsRouter.get("/:id", async (req: CompanyScopedWithId, res) => {
     },
   });
   if (!application) return res.status(404).json({ error: "找不到申請單" });
-  // 草稿是使用者還沒寫完、還沒送出的內容，跟已經進入簽核流程的申請單不一樣，不能套用
-  // 「同公司都能看」這個既有的寬鬆權限——只有申請人自己或 admin 能看別人的草稿內容。
-  if (application.status === "draft" && application.applicantId !== req.auth!.userId && req.auth!.role !== "admin") {
-    return res.status(403).json({ error: "無權查看此草稿" });
+  if (!canViewApplication(application, req.auth!)) {
+    return res.status(403).json({
+      error: application.status === "draft" ? "無權查看此草稿" : "無權查看此申請單",
+    });
   }
   res.json(application);
 });

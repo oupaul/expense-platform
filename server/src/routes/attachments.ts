@@ -5,6 +5,7 @@ import { Router, type Request } from "express";
 import multer from "multer";
 import sharp from "sharp";
 import { prisma } from "../db.js";
+import { canViewApplication } from "../services/applicationAccess.js";
 
 // mergeParams 讓 :companyId(從 index.ts 掛載路徑)、:id(申請單 id，從 applications.ts 的
 // "/:id/attachments" 掛載路徑)都會被合併進 req.params。
@@ -153,14 +154,18 @@ attachmentsRouter.post("/", (req, res, next) => {
 });
 
 // GET /api/companies/:companyId/applications/:id/attachments/:attachmentId
-// 沒有另外限制「只有申請人或當前關卡簽核者」才能看，跟其他 GET /applications/:id 明細
-// 端點的權限寬鬆度一致(同公司登入使用者都能查看申請單明細)。
+// 跟 applications.ts 的 GET /:id 明細用同一套 canViewApplication 規則——申請單明細本身
+// 鎖起來、附件檔案卻誰都能下載的話，等於明細白鎖，兩邊必須一致。
 attachmentsRouter.get("/:attachmentId", async (req: ScopedRequest, res) => {
   const { companyId, id: applicationId, attachmentId } = req.params;
   const attachment = await prisma.attachment.findFirst({
     where: { id: attachmentId, applicationId, application: { companyId } },
+    include: { application: { include: { approvalRecords: { include: { stage: true } } } } },
   });
   if (!attachment) return res.status(404).json({ error: "找不到附件" });
+  if (!canViewApplication(attachment.application, req.auth!)) {
+    return res.status(403).json({ error: "無權查看此附件" });
+  }
 
   const filePath = path.join(UPLOAD_ROOT, companyId, applicationId, attachment.storedName);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: "檔案已遺失" });
