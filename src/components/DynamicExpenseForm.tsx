@@ -442,6 +442,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       <div className="hidden print:block">
         <PrintableApplicationForm
           branding={branding}
+          applicationNumber={editApplicationId ? editQuery.data?.applicationNumber : null}
           applicantName={auth.user.name}
           departmentName={departmentName}
           applicationDate={applicationDate}

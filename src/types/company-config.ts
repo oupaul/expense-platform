@@ -46,6 +46,11 @@ export interface CompanyFormConfig {
   multiCurrencyEnabled: boolean;
   optionalFields: OptionalFields;
   printRowsPerPage: number;
+  appNumberEnabled: boolean;
+  appNumberPrefix: string;
+  appNumberDateFormat: "none" | "roc" | "yyyyMMdd" | "yyMMdd";
+  appNumberResetPeriod: "daily" | "monthly" | "yearly" | "never";
+  appNumberSeqDigits: number;
   departments: SelectOption[];
   expenseNatures: SelectOption[];
   expenseCategories: ExpenseCategoryOption[];

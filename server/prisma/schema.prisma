@@ -101,6 +101,19 @@ model Company {
   // 16 筆左右就會超出可印刷高度，超過這個數字風險是被 usePrintFit 縮到字很小。
   printRowsPerPage Int @default(12)
 
+  // 申請單流水編號(選填功能，預設關閉)：格式是「前綴 + 日期(選填) + 流水號」，
+  // 例如 HZ115090701 = 前綴 HZ + 民國年月日 1150907 + 當天流水號 01。每家公司自己
+  // 決定要不要開、格式長怎樣——這是公司自己對內部憑證編號的慣例，跟平台無關。
+  appNumberEnabled    Boolean @default(false)
+  appNumberPrefix     String  @default("")
+  // "none" / "roc"(民國年YYMMDD，例如 1150907) / "yyyyMMdd" / "yyMMdd"
+  appNumberDateFormat String  @default("none")
+  // "daily" / "monthly" / "yearly" / "never"(不重置，永遠累加)——決定流水號多久歸零一次，
+  // 對應 ApplicationNumberCounter 用什麼粒度的 periodKey 分開計數。
+  appNumberResetPeriod String @default("daily")
+  // 流水號補零到幾位數，例如 2 -> "01"、"02"...、"99"、"100"(超過位數不截斷，正常往上長)。
+  appNumberSeqDigits  Int     @default(2)
+
   departments       Department[]
   expenseCategories ExpenseCategory[]
   expenseNatures    ExpenseNature[]
@@ -109,9 +122,25 @@ model Company {
   users             User[]
   applications      ExpenseApplication[]
   notifications     Notification[]
+  numberCounters    ApplicationNumberCounter[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// 申請單流水編號用的計數器——每家公司、每個計數週期(依 appNumberResetPeriod 決定
+// periodKey 的粒度，例如每天一筆、每月一筆)各自累加一個獨立的數字。用資料庫層級的
+// 原子遞增(upsert 搭配 increment，Postgres 會編譯成單一 INSERT ... ON CONFLICT DO
+// UPDATE)取號，不能用「查詢目前最大編號 +1」這種寫法——那樣兩個人同時送出申請單時
+// 會拿到同一個號碼，是道地的 race condition。
+model ApplicationNumberCounter {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  periodKey String // "" (never) / "2026" (yearly) / "2026-09" (monthly) / "2026-09-07" (daily)
+  value     Int     @default(0)
+
+  @@unique([companyId, periodKey])
 }
 
 // ── 後台可維護的選項資料(部門/費用類別/費用性質) ──────────
@@ -250,6 +279,11 @@ model ExpenseApplication {
   totalAmountTWD Decimal @default(0) @db.Decimal(12, 2)
   status         String  @default("pending") // draft / pending / approved / rejected / returned
 
+  // 公司自訂格式的流水編號(例如 HZ115090701)，只在「正式送出」的當下才產生(草稿沒有)，
+  // 避免草稿被刪掉留下不連續的號碼空缺。功能沒開、或這張單是啟用功能前建立的舊資料，
+  // 就會是 null——刻意不回頭幫舊資料補號碼，那樣容易編出不符合實際送出順序的號碼。
+  applicationNumber String?
+
   // 申請人送出時的電子簽名(手寫或上傳)，存 base64 data URL。
   applicantSignature String? @db.Text
 
@@ -268,6 +302,7 @@ model ExpenseApplication {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([companyId, applicationNumber])
   @@index([companyId, status])
   @@index([applicantId])
 }

@@ -71,6 +71,7 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead>編號</TableHead>
             <TableHead>申請人</TableHead>
             <TableHead>部門</TableHead>
             <TableHead>申請日期</TableHead>
@@ -85,6 +86,7 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
             return (
               <Fragment key={app.id}>
                 <TableRow>
+                  <TableCell className="font-mono text-xs">{app.applicationNumber ?? "-"}</TableCell>
                   <TableCell>{app.applicant.name}</TableCell>
                   <TableCell>{app.department.name}</TableCell>
                   <TableCell>{new Date(app.applicationDate).toLocaleDateString("zh-TW")}</TableCell>
@@ -98,7 +100,7 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
                 </TableRow>
                 {expanded && (
                   <TableRow>
-                    <TableCell colSpan={6} className="p-0">
+                    <TableCell colSpan={7} className="p-0">
                       <ApplicationDetail auth={auth} applicationId={app.id} />
                       <div className="space-y-3 border-t bg-slate-50 p-4">
                         <div>

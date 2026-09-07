@@ -13,6 +13,27 @@ const OPTIONAL_FIELD_LABELS: { key: keyof OptionalFields; label: string }[] = [
   { key: "requestedPaymentDate", label: "需求付款日(表單下方顯示指定付款日期欄位)" },
 ];
 
+const SELECT_CLASS =
+  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+
+// 只給後台這裡的「範例」預覽用，跟後端 server/src/services/applicationNumber.ts 的
+// 邏輯刻意分開兩份——這裡只是顯示用途，不會真的去動計數器，沒有共用程式碼的必要。
+function previewApplicationNumber(prefix: string, dateFormat: string, seqDigits: number): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const datePart =
+    dateFormat === "roc"
+      ? `${String(yyyy - 1911).padStart(3, "0")}${mm}${dd}`
+      : dateFormat === "yyyyMMdd"
+        ? `${yyyy}${mm}${dd}`
+        : dateFormat === "yyMMdd"
+          ? `${String(yyyy % 100).padStart(2, "0")}${mm}${dd}`
+          : "";
+  return `${prefix}${datePart}${"1".padStart(seqDigits, "0")}`;
+}
+
 export function CompanySettingsManager({ auth, config }: { auth: AuthState; config: CompanyFormConfig }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +73,18 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
   const logoUploadMutation = useMutation({
     mutationFn: (file: File) =>
       apiUploadFile<{ logoUrl: string }>(`/companies/${auth.user.companyId}/logo`, "logo", file, auth.token),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const appNumberMutation = useMutation({
+    mutationFn: (patch: {
+      appNumberEnabled?: boolean;
+      appNumberPrefix?: string;
+      appNumberDateFormat?: string;
+      appNumberResetPeriod?: string;
+      appNumberSeqDigits?: number;
+    }) => apiFetch(`/companies/${auth.user.companyId}/settings`, { method: "PUT", token: auth.token, body: patch }),
     onSuccess: invalidate,
     onError,
   });
@@ -189,6 +222,86 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
           實測若「說明」欄位都是短文字，一頁 A4 大約可以放到 16 筆左右；如果常常填寫較長的說明文字建議調低，
           避免每筆換行擠爆版面。預設 12 筆是留有安全空間的折衷值。
         </p>
+      </div>
+
+      <div className="space-y-3 border-t pt-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={config.appNumberEnabled}
+            onChange={(e) => appNumberMutation.mutate({ appNumberEnabled: e.target.checked })}
+            disabled={appNumberMutation.isPending}
+          />
+          啟用申請單流水編號(例如 HZ115090701)
+        </label>
+        {config.appNumberEnabled && (
+          <div className="space-y-3 pl-6">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>前綴文字(選填)</Label>
+                <Input
+                  defaultValue={config.appNumberPrefix}
+                  placeholder="HZ"
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value !== config.appNumberPrefix) appNumberMutation.mutate({ appNumberPrefix: value });
+                  }}
+                />
+              </div>
+              <div>
+                <Label>流水號位數(補零)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={6}
+                  defaultValue={config.appNumberSeqDigits}
+                  onBlur={(e) => {
+                    const value = Number(e.target.value);
+                    if (Number.isInteger(value) && value >= 1 && value <= 6 && value !== config.appNumberSeqDigits) {
+                      appNumberMutation.mutate({ appNumberSeqDigits: value });
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <Label>日期格式</Label>
+                <select
+                  className={SELECT_CLASS}
+                  value={config.appNumberDateFormat}
+                  onChange={(e) => appNumberMutation.mutate({ appNumberDateFormat: e.target.value })}
+                >
+                  <option value="none">不顯示日期</option>
+                  <option value="roc">民國年月日(例如 1150907)</option>
+                  <option value="yyyyMMdd">西元年月日(例如 20260907)</option>
+                  <option value="yyMMdd">西元年月日‧2 碼年(例如 260907)</option>
+                </select>
+              </div>
+              <div>
+                <Label>流水號重置週期</Label>
+                <select
+                  className={SELECT_CLASS}
+                  value={config.appNumberResetPeriod}
+                  onChange={(e) => appNumberMutation.mutate({ appNumberResetPeriod: e.target.value })}
+                >
+                  <option value="daily">每天歸零</option>
+                  <option value="monthly">每月歸零</option>
+                  <option value="yearly">每年歸零</option>
+                  <option value="never">不歸零(永遠累加)</option>
+                </select>
+              </div>
+            </div>
+            <div className="rounded bg-slate-50 p-3 text-sm">
+              範例：
+              <span className="ml-1 font-mono font-semibold">
+                {previewApplicationNumber(config.appNumberPrefix, config.appNumberDateFormat, config.appNumberSeqDigits)}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              編號只會在申請單正式送出的當下產生(草稿不編號)，避免草稿被刪掉留下不連續的號碼空缺；
+              啟用這個功能之前建立的舊申請單不會回頭補編號。
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

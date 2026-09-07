@@ -73,6 +73,11 @@ companiesRouter.get("/:slug/config", async (req, res) => {
     multiCurrencyEnabled: company.multiCurrencyEnabled,
     optionalFields: company.optionalFields,
     printRowsPerPage: company.printRowsPerPage,
+    appNumberEnabled: company.appNumberEnabled,
+    appNumberPrefix: company.appNumberPrefix,
+    appNumberDateFormat: company.appNumberDateFormat,
+    appNumberResetPeriod: company.appNumberResetPeriod,
+    appNumberSeqDigits: company.appNumberSeqDigits,
     departments: company.departments.map((d) => ({ id: d.id, name: d.name })),
     expenseNatures: company.expenseNatures.map((n) => ({ id: n.id, name: n.name })),
     expenseCategories: company.expenseCategories.map((c) => ({
@@ -111,6 +116,12 @@ const settingsSchema = z.object({
   printRowsPerPage: z.number().int().min(1).max(20).optional(),
   // email 通知裡「查看並簽核」連結要用的網址，空字串代表清掉(信件退回純文字、不放連結)。
   appUrl: z.union([z.string().url(), z.literal("")]).optional(),
+  // 申請單流水編號設定，見 server/src/services/applicationNumber.ts 的說明。
+  appNumberEnabled: z.boolean().optional(),
+  appNumberPrefix: z.string().max(10).optional(),
+  appNumberDateFormat: z.enum(["none", "roc", "yyyyMMdd", "yyMMdd"]).optional(),
+  appNumberResetPeriod: z.enum(["daily", "monthly", "yearly", "never"]).optional(),
+  appNumberSeqDigits: z.number().int().min(1).max(6).optional(),
 });
 
 // PUT /api/companies/:companyId/settings  （用 companyId 而非 slug，跟其他後台管理路由一致）
@@ -152,6 +163,11 @@ companiesRouter.put(
       multiCurrencyEnabled: company.multiCurrencyEnabled,
       optionalFields: company.optionalFields,
       printRowsPerPage: company.printRowsPerPage,
+      appNumberEnabled: company.appNumberEnabled,
+      appNumberPrefix: company.appNumberPrefix,
+      appNumberDateFormat: company.appNumberDateFormat,
+      appNumberResetPeriod: company.appNumberResetPeriod,
+      appNumberSeqDigits: company.appNumberSeqDigits,
     });
   }
 );

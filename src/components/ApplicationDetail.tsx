@@ -62,6 +62,12 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
     <div className="space-y-4 bg-slate-50 p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="grid grow grid-cols-2 gap-2 text-sm md:grid-cols-4">
+          {data.applicationNumber && (
+            <div className="md:col-span-4">
+              <span className="text-muted-foreground">單號：</span>
+              <span className="font-mono font-semibold">{data.applicationNumber}</span>
+            </div>
+          )}
           <div><span className="text-muted-foreground">申請人：</span>{data.applicant.name}({data.applicant.email})</div>
           <div><span className="text-muted-foreground">部門：</span>{data.department?.name ?? "-"}</div>
           <div><span className="text-muted-foreground">費用性質：</span>{data.expenseNature?.name ?? "-"}</div>
@@ -180,6 +186,7 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
           <div className="hidden print:block">
             <PrintableApplicationForm
               branding={config.branding}
+              applicationNumber={data.applicationNumber}
               applicantName={data.applicant.name}
               departmentName={data.department?.name ?? ""}
               applicationDate={data.applicationDate ? new Date(data.applicationDate).toLocaleDateString("zh-TW") : ""}

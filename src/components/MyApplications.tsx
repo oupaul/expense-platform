@@ -85,6 +85,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>編號</TableHead>
               {scope === "all" && <TableHead>申請人</TableHead>}
               <TableHead>部門</TableHead>
               <TableHead>申請日期</TableHead>
@@ -100,6 +101,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
               return (
                 <Fragment key={app.id}>
                   <TableRow>
+                    <TableCell className="font-mono text-xs">{app.applicationNumber ?? "-"}</TableCell>
                     {scope === "all" && <TableCell>{app.applicant.name}</TableCell>}
                     <TableCell>{app.department?.name ?? "-"}</TableCell>
                     <TableCell>{app.applicationDate ? new Date(app.applicationDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
@@ -148,7 +150,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
                   </TableRow>
                   {expanded && !isDraft && (
                     <TableRow>
-                      <TableCell colSpan={scope === "all" ? 6 : 5} className="p-0">
+                      <TableCell colSpan={scope === "all" ? 7 : 6} className="p-0">
                         <ApplicationDetail auth={auth} applicationId={app.id} />
                       </TableCell>
                     </TableRow>

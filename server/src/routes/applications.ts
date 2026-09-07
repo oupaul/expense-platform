@@ -8,6 +8,7 @@ import { ALL_CURRENCIES } from "../constants.js";
 import { attachmentsRouter } from "./attachments.js";
 import { notifySubmission, notifyDecision } from "../services/notifications.js";
 import { canViewApplication } from "../services/applicationAccess.js";
+import { nextApplicationNumber } from "../services/applicationNumber.js";
 
 // 通知(站內鈴鐺清單 + email)刻意不 await、只掛一個 .catch() 吞掉錯誤：申請單本身有沒有
 // 送出/簽核成功，跟通知寄不寄得出去是兩件事，不該讓 SMTP 連線慢/失敗拖慢或搞壞這個
@@ -166,7 +167,7 @@ async function validateApplicationInput(companyId: string, data: CreateData) {
   }
 
   const totalAmountTWD = itemsWithConversion.reduce((sum, item) => sum + (item.amountInTWD as number), 0);
-  return { ok: true as const, itemsWithConversion, totalAmountTWD };
+  return { ok: true as const, itemsWithConversion, totalAmountTWD, company };
 }
 
 // POST /api/companies/:companyId/applications
@@ -182,12 +183,14 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
   if (!validated.ok) {
     return res.status(validated.status).json({ error: validated.error });
   }
-  const { itemsWithConversion, totalAmountTWD } = validated;
+  const { itemsWithConversion, totalAmountTWD, company } = validated;
 
   const stages = await prisma.approvalStage.findMany({ where: { companyId, active: true }, orderBy: { stageOrder: "asc" } });
   if (stages.length === 0) {
     return res.status(400).json({ error: "此公司尚未設定簽核關卡，無法送出申請" });
   }
+
+  const applicationNumber = await nextApplicationNumber(companyId, company);
 
   const application = await prisma.expenseApplication.create({
     data: {
@@ -202,6 +205,7 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
       requestedPaymentDate: data.requestedPaymentDate,
       applicantSignature: data.applicantSignature,
       totalAmountTWD,
+      applicationNumber,
       items: {
         create: itemsWithConversion.map((item) => ({
           categoryId: item.categoryId,
@@ -388,12 +392,16 @@ applicationsRouter.post("/:id/submit-draft", async (req: CompanyScopedWithId, re
 
   const validated = await validateApplicationInput(companyId, data);
   if (!validated.ok) return res.status(validated.status).json({ error: validated.error });
-  const { itemsWithConversion, totalAmountTWD } = validated;
+  const { itemsWithConversion, totalAmountTWD, company } = validated;
 
   const stages = await prisma.approvalStage.findMany({ where: { companyId, active: true }, orderBy: { stageOrder: "asc" } });
   if (stages.length === 0) {
     return res.status(400).json({ error: "此公司尚未設定簽核關卡，無法送出申請" });
   }
+
+  // 草稿本身沒有編號(只在正式送出時才佔用一個號碼)，這裡一定是第一次送出，
+  // 不用檢查 existing.applicationNumber 是否已經有值。
+  const applicationNumber = await nextApplicationNumber(companyId, company);
 
   const application = await prisma.expenseApplication.update({
     where: { id: existing.id },
@@ -408,6 +416,7 @@ applicationsRouter.post("/:id/submit-draft", async (req: CompanyScopedWithId, re
       applicantSignature: data.applicantSignature,
       totalAmountTWD,
       status: "pending",
+      applicationNumber,
       items: {
         deleteMany: {},
         create: itemsWithConversion.map((item) => ({
@@ -557,7 +566,12 @@ applicationsRouter.post("/:id/resubmit", async (req: CompanyScopedWithId, res) =
   if (!validated.ok) {
     return res.status(validated.status).json({ error: validated.error });
   }
-  const { itemsWithConversion, totalAmountTWD } = validated;
+  const { itemsWithConversion, totalAmountTWD, company } = validated;
+
+  // 退回後重新送出是同一張申請單再跑一次流程，不是新的一張——沿用原本的編號，
+  // 只有極少數例外(啟用編號功能之前就建立的舊申請單被退回、現在才第一次補號)
+  // 才需要真的取一個新號碼。
+  const applicationNumber = application.applicationNumber ?? (await nextApplicationNumber(companyId, company));
 
   await prisma.$transaction([
     prisma.expenseApplication.update({
@@ -573,6 +587,7 @@ applicationsRouter.post("/:id/resubmit", async (req: CompanyScopedWithId, res) =
         applicantSignature: data.applicantSignature,
         totalAmountTWD,
         status: "pending",
+        applicationNumber,
         items: {
           deleteMany: {},
           create: itemsWithConversion.map((item) => ({

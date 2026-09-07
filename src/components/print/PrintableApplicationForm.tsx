@@ -21,6 +21,7 @@ export interface PrintableSignatureBox {
 
 interface Props {
   branding: Branding;
+  applicationNumber?: string | null;
   applicantName: string;
   departmentName: string;
   applicationDate: string;
@@ -65,6 +66,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 export function PrintableApplicationForm(props: Props) {
   const {
     branding,
+    applicationNumber,
     applicantName,
     departmentName,
     applicationDate,
@@ -90,7 +92,10 @@ export function PrintableApplicationForm(props: Props) {
         <div className="text-lg font-bold">{branding.name}</div>
         {branding.nameEn && <div className="text-xs opacity-80">{branding.nameEn}</div>}
       </div>
-      <div className="text-base">費用申請單</div>
+      <div className="text-right">
+        <div className="text-base">費用申請單</div>
+        {applicationNumber && <div className="font-mono text-xs opacity-90">{applicationNumber}</div>}
+      </div>
     </div>
   );
 
