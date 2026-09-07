@@ -571,7 +571,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                         <TableHead className="whitespace-nowrap">
                           發票日期
                           <br />
-                          <span className="text-xs font-normal">(個人代墊費用可不填)</span>
+                          <span className="text-xs font-normal">(個人代墊可保持空白)</span>
                         </TableHead>
                       )}
                       {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
@@ -714,7 +714,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                     </div>
                     {optionalFields.invoiceDate && (
                       <div>
-                        <Label>發票日期(個人代墊費用可不填)</Label>
+                        <Label>發票日期(個人代墊可保持空白)</Label>
                         <div className="flex gap-1">
                           <Input
                             type="date"
@@ -785,7 +785,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                 )}
                 {optionalFields.requestedPaymentDate && (
                   <div>
-                    <Label>需求付款日(如無指定-請填依公司規定)</Label>
+                    <Label>需求付款日(如無指定-請保持空白)</Label>
                     <div className="flex gap-1">
                       <Input
                         type="date"
