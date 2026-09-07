@@ -38,9 +38,19 @@ const EXT_BY_MIME: Record<string, string> = { "application/pdf": ".pdf", "image/
 // 丟出來的原始例外一路穿到最外層的錯誤處理，變成語意不明的「伺服器發生錯誤」。
 class UnsupportedImageError extends Error {}
 
+// multer(底層是 busboy)解析 multipart/form-data 表頭時，檔名一律先當 latin1 解碼——
+// 瀏覽器實際上是用 UTF-8 位元組直接寫進表頭(沒有另外做 percent-encoding)，兩邊編碼
+// 對不上，中文/日文等非 ASCII 檔名就會變成亂碼(例如「測試.png」變成「æ¸¬è©¦.png」)。
+// 修法是把 busboy 誤判成 latin1 的字串，再重新當成 latin1 編碼還原回原始位元組、
+// 用 UTF-8 重新解碼一次——這是 multer/busboy 這個已知行為的標準解法，不是自創的猜測。
+function decodeOriginalFilename(name: string): string {
+  return Buffer.from(name, "latin1").toString("utf8");
+}
+
 async function processFile(file: Express.Multer.File): Promise<{ buffer: Buffer; mimeType: string; filename: string }> {
+  const originalName = decodeOriginalFilename(file.originalname);
   if (file.mimetype === "application/pdf") {
-    return { buffer: file.buffer, mimeType: file.mimetype, filename: file.originalname };
+    return { buffer: file.buffer, mimeType: file.mimetype, filename: originalName };
   }
   let webpBuffer: Buffer;
   try {
@@ -52,7 +62,7 @@ async function processFile(file: Express.Multer.File): Promise<{ buffer: Buffer;
   } catch {
     throw new UnsupportedImageError("圖片檔案無法處理，請確認檔案沒有毀損，或改用 JPG / PNG 格式重新上傳");
   }
-  const baseName = file.originalname.replace(/\.[^./]+$/, "") || "image";
+  const baseName = originalName.replace(/\.[^./]+$/, "") || "image";
   return { buffer: webpBuffer, mimeType: "image/webp", filename: `${baseName}.webp` };
 }
 
