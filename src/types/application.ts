@@ -1,5 +1,6 @@
 export interface ApplicationListItem {
   id: string;
+  applicantId: string;
   // 只有正式送出的申請單才會有編號(草稿/啟用編號功能前的舊資料是 null)。
   applicationNumber: string | null;
   // 草稿狀態下這幾個欄位可能還沒填，所以是 null——已經送出的申請單(pending 以後的狀態)
@@ -52,6 +53,7 @@ export interface ApprovalRecordDetail {
 
 export interface ApplicationDetail {
   id: string;
+  applicantId: string;
   // 只有正式送出的申請單才會有編號(草稿/啟用編號功能前的舊資料是 null)。
   applicationNumber: string | null;
   // 草稿狀態下這幾個欄位可能還沒填，所以是 null——已經送出的申請單一定有值。

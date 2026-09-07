@@ -6,7 +6,7 @@ import { prisma } from "../db.js";
 import { requireAuth, requireSameCompany } from "../middleware/auth.js";
 import { ALL_CURRENCIES } from "../constants.js";
 import { attachmentsRouter } from "./attachments.js";
-import { notifySubmission, notifyDecision } from "../services/notifications.js";
+import { notifySubmission, notifyDecision, notifyCancellation } from "../services/notifications.js";
 import { canViewApplication } from "../services/applicationAccess.js";
 import { nextApplicationNumber } from "../services/applicationNumber.js";
 
@@ -489,34 +489,43 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
   // 上面讀出 currentRecord 到這裡執行寫入之間有一段時間差——如果同一關有兩個人(例如兩個
   // finance 帳號)幾乎同時各按一次簽核，或同一個人手滑點兩下/網路重試，兩個請求都會讀到
   // 同一筆 status="waiting" 的紀錄、都通過前面的檢查，若直接用 update(where:{id})覆寫，
-  // 後寫入的那個會蓋掉先寫入的結果(甚至可能一個核准一個駁回，兩次都「成功」)。
-  // 用 updateMany 帶 status:"waiting" 當條件做 compare-and-swap：只有真正搶到「這筆還是
-  // waiting」的那個請求會真的寫入(count 為 1)，慢一步的請求 count 會是 0，回報 409 讓
-  // 使用者知道這張申請單剛剛已經被別人處理過，而不是讓資料被靜默地重複寫入或覆蓋。
-  const conflict = await prisma.$transaction(async (tx) => {
-    const updated = await tx.approvalRecord.updateMany({
-      where: { id: currentRecord.id, status: "waiting" },
-      data: {
-        status: recordStatus,
-        approverId: auth.userId,
-        comment,
-        signatureImage,
-        signedAt: new Date(),
-      },
-    });
-    if (updated.count === 0) return true;
+  // 後寫入的那個會蓋掉先寫入的結果(甚至可能一個核准一個駁回，兩次都「成功」)。同樣的道理，
+  // 申請人也可能在這個當下剛好按「取消申請」——兩個動作都會通過各自最上面的狀態檢查。
+  // 用 updateMany 帶條件做 compare-and-swap：ApprovalRecord 檢查 status:"waiting"、
+  // ExpenseApplication 檢查 status:"pending"，只要其中一個「搶輸」(count 為 0)就直接
+  // throw 讓整個 interactive transaction 回滾(連已經寫入的另一半也一起復原，不會留下
+  // 「關卡紀錄說已核准、但申請單狀態被取消蓋掉」這種前後矛盾的中間狀態)，統一回報 409。
+  class DecisionConflictError extends Error {}
+  let conflict = false;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const updatedRecord = await tx.approvalRecord.updateMany({
+        where: { id: currentRecord.id, status: "waiting" },
+        data: {
+          status: recordStatus,
+          approverId: auth.userId,
+          comment,
+          signatureImage,
+          signedAt: new Date(),
+        },
+      });
+      if (updatedRecord.count === 0) throw new DecisionConflictError();
 
-    await tx.expenseApplication.update({
-      where: { id: application.id },
-      data: {
-        status: applicationStatus,
-        ...(action === "return"
-          ? { returnComment: comment, returnedAt: new Date(), returnedByStageLabel: currentRecord.stage.label }
-          : {}),
-      },
+      const updatedApp = await tx.expenseApplication.updateMany({
+        where: { id: application.id, status: "pending" },
+        data: {
+          status: applicationStatus,
+          ...(action === "return"
+            ? { returnComment: comment, returnedAt: new Date(), returnedByStageLabel: currentRecord.stage.label }
+            : {}),
+        },
+      });
+      if (updatedApp.count === 0) throw new DecisionConflictError();
     });
-    return false;
-  });
+  } catch (err) {
+    if (!(err instanceof DecisionConflictError)) throw err;
+    conflict = true;
+  }
   if (conflict) {
     return res.status(409).json({ error: "此申請單剛剛已經被處理過，請重新整理後再確認一次" });
   }
@@ -573,41 +582,62 @@ applicationsRouter.post("/:id/resubmit", async (req: CompanyScopedWithId, res) =
   // 才需要真的取一個新號碼。
   const applicationNumber = application.applicationNumber ?? (await nextApplicationNumber(companyId, company));
 
-  await prisma.$transaction([
-    prisma.expenseApplication.update({
-      where: { id: application.id },
-      data: {
-        departmentId: data.departmentId,
-        expenseNatureId: data.expenseNatureId,
-        applicationDate: data.applicationDate,
-        purpose: data.purpose,
-        payeeName: data.payeeName,
-        payeeBankInfo: data.payeeBankInfo,
-        requestedPaymentDate: data.requestedPaymentDate,
-        applicantSignature: data.applicantSignature,
-        totalAmountTWD,
-        status: "pending",
-        applicationNumber,
-        items: {
-          deleteMany: {},
-          create: itemsWithConversion.map((item) => ({
-            categoryId: item.categoryId,
-            description: item.description,
-            date: item.date,
-            projectCode: item.projectCode,
-            invoiceDate: item.invoiceDate,
-            currency: item.currency,
-            amount: item.amount,
-            amountInTWD: item.amountInTWD as number,
-          })),
+  // 申請人也可能在這個當下剛好按「取消申請」——跟 /:id/decision 同一類 race condition。
+  // updateMany 沒辦法做巢狀關聯寫入(items 的 deleteMany/create)，所以分兩步：先用
+  // updateMany 帶 status:"returned" 當條件「佔位」，只有真正搶到的那個請求 count 會是
+  // 1(這一步的 UPDATE 在 DB 層級會鎖住這一列，另一個請求要嘛看到還沒改、要嘛看到已經
+  // 改完，不會有中間狀態可撞)；搶到之後才在同一個 transaction 裡繼續做完整的內容更新，
+  // 這時已經確定不會有人在半路把狀態搶走，可以放心用一般的 update()。
+  class ResubmitConflictError extends Error {}
+  let conflict = false;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.expenseApplication.updateMany({
+        where: { id: application.id, status: "returned" },
+        data: { status: "pending" },
+      });
+      if (claimed.count === 0) throw new ResubmitConflictError();
+
+      await tx.expenseApplication.update({
+        where: { id: application.id },
+        data: {
+          departmentId: data.departmentId,
+          expenseNatureId: data.expenseNatureId,
+          applicationDate: data.applicationDate,
+          purpose: data.purpose,
+          payeeName: data.payeeName,
+          payeeBankInfo: data.payeeBankInfo,
+          requestedPaymentDate: data.requestedPaymentDate,
+          applicantSignature: data.applicantSignature,
+          totalAmountTWD,
+          applicationNumber,
+          items: {
+            deleteMany: {},
+            create: itemsWithConversion.map((item) => ({
+              categoryId: item.categoryId,
+              description: item.description,
+              date: item.date,
+              projectCode: item.projectCode,
+              invoiceDate: item.invoiceDate,
+              currency: item.currency,
+              amount: item.amount,
+              amountInTWD: item.amountInTWD as number,
+            })),
+          },
         },
-      },
-    }),
-    prisma.approvalRecord.updateMany({
-      where: { applicationId: application.id },
-      data: { status: "waiting", approverId: null, comment: null, signatureImage: null, signedAt: null },
-    }),
-  ]);
+      });
+      await tx.approvalRecord.updateMany({
+        where: { applicationId: application.id },
+        data: { status: "waiting", approverId: null, comment: null, signatureImage: null, signedAt: null },
+      });
+    });
+  } catch (err) {
+    if (!(err instanceof ResubmitConflictError)) throw err;
+    conflict = true;
+  }
+  if (conflict) {
+    return res.status(409).json({ error: "此申請單剛剛狀態已經改變(可能已被取消)，請重新整理後再確認一次" });
+  }
 
   const refreshed = await prisma.expenseApplication.findFirst({
     where: { id: application.id },
@@ -615,4 +645,46 @@ applicationsRouter.post("/:id/resubmit", async (req: CompanyScopedWithId, res) =
   });
   fireNotification(notifySubmission({ id: application.id, companyId, totalAmountTWD }));
   res.status(200).json(refreshed);
+});
+
+// POST /api/companies/:companyId/applications/:id/cancel —— 申請人自行取消申請單。
+// 只開放「審核中」或「已退回」兩種狀態；已核准/已駁回是終局狀態，草稿走的是
+// DELETE .../draft 那條路(整筆刪掉，不是狀態轉換)，不套用這條路由。
+applicationsRouter.post("/:id/cancel", async (req: CompanyScopedWithId, res) => {
+  const auth = req.auth!;
+  const application = await prisma.expenseApplication.findFirst({
+    where: { id: req.params.id, companyId: req.params.companyId },
+    include: { approvalRecords: { include: { stage: true }, orderBy: { stage: { stageOrder: "asc" } } } },
+  });
+  if (!application) return res.status(404).json({ error: "找不到申請單" });
+  if (application.applicantId !== auth.userId) {
+    return res.status(403).json({ error: "只有申請人本人能取消申請" });
+  }
+  if (application.status !== "pending" && application.status !== "returned") {
+    return res.status(409).json({ error: "此申請單目前的狀態無法取消" });
+  }
+
+  // 跟 /:id/decision 同一種 compare-and-swap 寫法：申請人按「取消」的同時，簽核者
+  // 也可能剛好在做核准/駁回/退回，兩個互斥的動作不該都成功。用 updateMany 帶
+  // status 條件，只有真正搶到「狀態還是 pending/returned」的那個請求會真的生效，
+  // 慢一步的請求(不管是這支 API 還是 /:id/decision)會看到 0 筆被更新、回 409。
+  const cancelledFromStatus = application.status as "pending" | "returned";
+  const updated = await prisma.expenseApplication.updateMany({
+    where: { id: application.id, status: { in: ["pending", "returned"] } },
+    data: { status: "cancelled" },
+  });
+  if (updated.count === 0) {
+    return res.status(409).json({ error: "此申請單剛剛已經被處理過，請重新整理後再確認一次" });
+  }
+
+  const currentRecord = application.approvalRecords.find((r) => r.status === "waiting");
+  fireNotification(
+    notifyCancellation({
+      application: { id: application.id, companyId: application.companyId, totalAmountTWD: Number(application.totalAmountTWD) },
+      cancelledFromStatus,
+      currentStageRoleKey: currentRecord?.stage.roleKey,
+      currentStageLabel: currentRecord?.stage.label,
+    })
+  );
+  res.status(204).end();
 });

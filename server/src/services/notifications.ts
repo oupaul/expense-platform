@@ -10,7 +10,7 @@ import { renderNotificationEmailHtml } from "./emailTemplate.js";
 async function notify(params: {
   companyId: string;
   applicationId: string;
-  type: "submitted" | "approved" | "rejected" | "returned";
+  type: "submitted" | "approved" | "rejected" | "returned" | "cancelled";
   title: string;
   message: string;
   emailFields: [label: string, value: string][];
@@ -182,4 +182,36 @@ export async function notifyDecision(params: {
       recipients: [applicant],
     });
   }
+}
+
+// 申請人自行取消申請單時呼叫。只有從「審核中」取消時才有「目前正在等待的簽核者」需要
+// 知會一聲(省得他點開才發現不用簽了)；從「已退回」取消時，退回當下就已經沒有人在等待
+// 這張單了(申請單本身不是 pending 狀態，簽核流程已經停在那一關)，不用特別通知誰。
+export async function notifyCancellation(params: {
+  application: { id: string; companyId: string; totalAmountTWD: number };
+  cancelledFromStatus: "pending" | "returned";
+  currentStageRoleKey?: string;
+  currentStageLabel?: string;
+}) {
+  const { application, cancelledFromStatus, currentStageRoleKey, currentStageLabel } = params;
+  if (cancelledFromStatus !== "pending" || !currentStageRoleKey) return;
+
+  const amount = formatTWD(application.totalAmountTWD);
+  const summary = await getApplicationSummary(application.id);
+  const recipients = await findStageApprovers(application.companyId, currentStageRoleKey);
+  await notify({
+    companyId: application.companyId,
+    applicationId: application.id,
+    type: "cancelled",
+    title: "有申請單已被申請人取消",
+    message: `一張原本在「${currentStageLabel}」等待你簽核、金額 ${amount} 的費用申請單已被申請人自行取消，不用再處理。`,
+    emailFields: [
+      ["申請人", summary?.applicant.name ?? "-"],
+      ["部門", summary?.department?.name ?? "-"],
+      ["用途", summary?.purpose || "-"],
+      ["金額", amount],
+      ["原本等待的關卡", currentStageLabel ?? "-"],
+    ],
+    recipients,
+  });
 }

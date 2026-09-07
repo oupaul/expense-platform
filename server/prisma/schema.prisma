@@ -277,7 +277,7 @@ model ExpenseApplication {
   requestedPaymentDate DateTime?
 
   totalAmountTWD Decimal @default(0) @db.Decimal(12, 2)
-  status         String  @default("pending") // draft / pending / approved / rejected / returned
+  status         String  @default("pending") // draft / pending / approved / rejected / returned / cancelled
 
   // 公司自訂格式的流水編號(例如 HZ115090701)，只在「正式送出」的當下才產生(草稿沒有)，
   // 避免草稿被刪掉留下不連續的號碼空缺。功能沒開、或這張單是啟用功能前建立的舊資料，
@@ -384,7 +384,8 @@ model Notification {
   applicationId String?
   application   ExpenseApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  // submitted(有新申請單待你簽核) / approved(申請已核准) / rejected(已駁回) / returned(已退回)
+  // submitted(有新申請單待你簽核) / approved(申請已核准) / rejected(已駁回) / returned(已退回) /
+  // cancelled(申請人自行取消)
   type    String
   title   String
   message String
