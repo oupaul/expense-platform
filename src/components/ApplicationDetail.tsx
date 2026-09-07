@@ -48,7 +48,10 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
     categoryName: item.category.name,
     description: item.description ?? "",
     projectCode: item.projectCode ?? undefined,
-    invoiceDate: item.invoiceDate ?? undefined,
+    // item.invoiceDate 是後端 DateTime 欄位序列化回來的完整 ISO 字串(例如
+    // "2026-09-01T00:00:00.000Z")，直接塞進列印版面會整串顯示出來，跟其他日期欄位
+    // (申請日期等)的呈現方式不一致，這裡統一轉成 zh-TW 的年/月/日格式。
+    invoiceDate: item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString("zh-TW") : undefined,
     currency: item.currency,
     amount: item.amount,
     amountInTWD: Number(item.amountInTWD),
