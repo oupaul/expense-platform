@@ -15,6 +15,7 @@ import type { AuthState } from "@/types/auth";
 import type { ApplicationDetail as ApplicationDetailType } from "@/types/application";
 import { ALL_CURRENCIES } from "@/lib/currencies";
 import { PrintableApplicationForm } from "@/components/print/PrintableApplicationForm";
+import { formatAmount } from "@/lib/utils";
 
 interface ExpenseRowState {
   categoryId: string;
@@ -652,7 +653,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                             {amountInTWD(row) === null ? (
                               <span className="text-destructive">尚未設定匯率</span>
                             ) : (
-                              `≈ ${amountInTWD(row)!.toFixed(0)}`
+                              `≈ ${formatAmount(Math.round(amountInTWD(row)!))}`
                             )}
                           </TableCell>
                         )}
@@ -761,7 +762,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                         {amountInTWD(row) === null ? (
                           <span className="text-destructive">尚未設定匯率</span>
                         ) : (
-                          `≈ ${amountInTWD(row)!.toFixed(0)}`
+                          `≈ ${formatAmount(Math.round(amountInTWD(row)!))}`
                         )}
                       </p>
                     )}
@@ -805,7 +806,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
             )}
 
             <div className="text-right text-lg font-bold" style={{ color: branding.primaryColor }}>
-              合計金額：{total.toFixed(0)} TWD
+              合計金額：{formatAmount(Math.round(total))} TWD
             </div>
 
             {/* 憑證附件：整張申請單共用一個上傳區，手機可拍照/選相簿，電腦可選檔案。

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
+import { formatAmount } from "@/lib/utils";
 import { AttachmentList } from "@/components/AttachmentList";
 import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 import { PrintableApplicationForm } from "@/components/print/PrintableApplicationForm";
@@ -120,13 +121,15 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
                 <TableCell>{item.category.name}</TableCell>
                 <TableCell>{item.description ?? "-"}</TableCell>
                 <TableCell>{item.currency}</TableCell>
-                <TableCell>{item.amount}</TableCell>
-                <TableCell>{item.amountInTWD}</TableCell>
+                <TableCell>{formatAmount(item.amount)}</TableCell>
+                <TableCell>{formatAmount(Math.round(Number(item.amountInTWD)))}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-        <div className="mt-2 text-right text-sm font-semibold">合計：{data.totalAmountTWD} TWD</div>
+        <div className="mt-2 text-right text-sm font-semibold">
+          合計：{formatAmount(Math.round(Number(data.totalAmountTWD)))} TWD
+        </div>
       </div>
 
       {data.attachments.length > 0 && (

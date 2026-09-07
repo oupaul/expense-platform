@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch, ApiError } from "@/lib/api";
+import { formatAmount } from "@/lib/utils";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationListItem } from "@/types/application";
 import { Fragment, useState } from "react";
@@ -88,7 +89,7 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
                   <TableCell>{app.department.name}</TableCell>
                   <TableCell>{new Date(app.applicationDate).toLocaleDateString("zh-TW")}</TableCell>
                   <TableCell>{app.purpose ?? "-"}</TableCell>
-                  <TableCell>{app.totalAmountTWD}</TableCell>
+                  <TableCell>{formatAmount(Math.round(Number(app.totalAmountTWD)))}</TableCell>
                   <TableCell>
                     <Button size="sm" variant="outline" onClick={() => setExpandedId(expanded ? null : app.id)}>
                       {expanded ? "收合" : "查看明細並簽核"}

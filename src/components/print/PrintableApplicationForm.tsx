@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { usePrintFit } from "@/hooks/usePrintFit";
+import { formatAmount } from "@/lib/utils";
 import type { Branding, OptionalFields } from "@/types/company-config";
 
 export interface PrintableRow {
@@ -124,8 +125,10 @@ export function PrintableApplicationForm(props: Props) {
             <td className="border border-gray-300 p-1.5">{row.description || "-"}</td>
             {optionalFields.invoiceDate && <td className="border border-gray-300 p-1.5">{row.invoiceDate || "-"}</td>}
             {multiCurrencyEnabled && <td className="border border-gray-300 p-1.5">{row.currency}</td>}
-            <td className="border border-gray-300 p-1.5">{row.amount}</td>
-            {multiCurrencyEnabled && <td className="border border-gray-300 p-1.5">{row.amountInTWD ?? "-"}</td>}
+            <td className="border border-gray-300 p-1.5">{formatAmount(row.amount)}</td>
+            {multiCurrencyEnabled && (
+              <td className="border border-gray-300 p-1.5">{row.amountInTWD === null ? "-" : formatAmount(Math.round(row.amountInTWD))}</td>
+            )}
           </tr>
         ))}
       </tbody>
@@ -135,7 +138,7 @@ export function PrintableApplicationForm(props: Props) {
   const renderTail = () => (
     <div className="mt-4 space-y-4">
       <div className="rounded bg-gray-50 p-3 text-right text-base font-bold" style={{ color: branding.primaryColor }}>
-        合計金額：{total.toFixed(0)} TWD
+        合計金額：{formatAmount(Math.round(total))} TWD
       </div>
       {(optionalFields.payeeInfo || optionalFields.requestedPaymentDate) && (
         <div className="grid grid-cols-2 gap-6 text-sm">

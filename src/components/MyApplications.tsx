@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch, ApiError } from "@/lib/api";
+import { formatAmount } from "@/lib/utils";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationListItem } from "@/types/application";
 import { ApplicationDetail } from "@/components/ApplicationDetail";
@@ -102,7 +103,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
                     {scope === "all" && <TableCell>{app.applicant.name}</TableCell>}
                     <TableCell>{app.department?.name ?? "-"}</TableCell>
                     <TableCell>{app.applicationDate ? new Date(app.applicationDate).toLocaleDateString("zh-TW") : "-"}</TableCell>
-                    <TableCell>{app.totalAmountTWD}</TableCell>
+                    <TableCell>{formatAmount(Math.round(Number(app.totalAmountTWD)))}</TableCell>
                     <TableCell className={STATUS_COLOR[app.status] ?? ""}>
                       {STATUS_LABEL[app.status] ?? app.status}
                       <div className="text-xs text-muted-foreground">{currentStageLabel(app)}</div>
