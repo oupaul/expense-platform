@@ -20,7 +20,21 @@ import { rescheduleBackupJob } from "./services/backupScheduler.js";
 
 const app = express();
 
-app.use(cors());
+// 只信任「直接從本機(nginx)連進來」的請求所帶的 X-Forwarded-For——這台主機的
+// 拓樸固定是「nginx(監聽 80/443)反向代理到本機的 4000」，nginx 本身也要記得加上
+// proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for(見 README/install.sh)。
+// 沒有這個設定，req.ip 永遠是 127.0.0.1(nginx 自己)，下面登入 API 的 rate limit
+// 會變成全公司共用同一個額度；如果真的有人繞過 nginx 直接打 4000 port，Express
+// 只有在直接連線來源是 loopback 時才會採信 header，不會被隨便塞一個假的
+// X-Forwarded-For 唬過去。
+app.set("trust proxy", "loopback");
+
+// 沒設定 CORS_ORIGIN 就維持原本「全部來源都放行」——前後端在正式環境是透過 nginx
+// 用同一個網域(同源)在跑，CORS 實務上不太會被真的用上，這裡放寬預設值是為了不讓
+// 既有部署在沒調整任何設定的情況下忽然打不通。想收斂的話設 CORS_ORIGIN(逗號分隔
+// 多個網域)，例如 CORS_ORIGIN="https://hzt-expenses.ai4ou.com"。
+const corsOrigins = process.env.CORS_ORIGIN?.split(",").map((o) => o.trim()).filter(Boolean);
+app.use(cors(corsOrigins && corsOrigins.length > 0 ? { origin: corsOrigins } : undefined));
 // pinoHttp 一定要在 express.json() 之前掛，不然遇到格式錯誤的 JSON body 時，
 // express.json() 會直接 next(err) 跳過後面所有一般 middleware(包含 pinoHttp)，
 // 導致 req.log 沒被設定，下面錯誤處理 middleware 呼叫 req.log.error() 反而自己噴錯，

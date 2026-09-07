@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import { signAuthToken } from "../auth/jwt.js";
 import { requireAuth, requirePlatformAdmin } from "../middleware/auth.js";
+import { loginRateLimiter } from "../middleware/rateLimit.js";
 
 // 平台管理者(服務供應商)的登入，跟租戶使用者的 /api/auth/login 分開一支路由——
 // 平台管理者不屬於任何公司，登入不需要(也不應該要)填 companySlug。
@@ -15,7 +16,7 @@ const loginSchema = z.object({
 });
 
 // POST /api/platform-auth/login
-platformAuthRouter.post("/login", async (req, res) => {
+platformAuthRouter.post("/login", loginRateLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

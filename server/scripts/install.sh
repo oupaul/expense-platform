@@ -275,6 +275,11 @@ server {
         proxy_pass http://127.0.0.1:4000;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        # 後端(index.ts 有設 app.set("trust proxy", "loopback"))靠這個標頭才能拿到
+        # 使用者的真實 IP，登入 API 的 rate limit 是照 IP 分開計算的——沒有這個標頭，
+        # Express 看到的來源永遠是 127.0.0.1(nginx 自己)，會變成全公司共用同一個
+        # 額度，任何人多打幾次登入就會連累其他人一起被鎖。
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         client_max_body_size 60M;
     }
 

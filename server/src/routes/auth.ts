@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import { signAuthToken } from "../auth/jwt.js";
 import { requireAuth } from "../middleware/auth.js";
+import { loginRateLimiter } from "../middleware/rateLimit.js";
 
 export const authRouter = Router();
 
@@ -14,7 +15,7 @@ const loginSchema = z.object({
 });
 
 // POST /api/auth/login
-authRouter.post("/login", async (req, res) => {
+authRouter.post("/login", loginRateLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

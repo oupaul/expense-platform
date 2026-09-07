@@ -94,6 +94,10 @@ vite.config.ts                 dev 時 `/api` proxy 到 http://localhost:4000
 DATABASE_URL="postgresql://<user>:<password>@<host>:5432/<db>?schema=public"
 PORT=4000
 JWT_SECRET="用 openssl rand -hex 32 產生，每個環境(dev/prod)都要不一樣，絕對不要沿用範例值"
+
+# 選填：限制 CORS 只接受這些來源(逗號分隔多個網域)。不設定就維持全部來源都放行——
+# 正式環境前後端透過 nginx 同源，通常不需要特別設定這個。
+# CORS_ORIGIN="https://your-domain.com"
 ```
 
 `server/.env.example` 是範本，複製一份改成 `.env` 後再填真實值：
@@ -266,6 +270,11 @@ server {
         proxy_pass http://127.0.0.1:4000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        # 後端(index.ts 有設 app.set("trust proxy", "loopback"))靠這個標頭才能拿到
+        # 使用者的真實 IP，登入 API 的 rate limit 是照 IP 分開計算的——沒有這個標頭，
+        # Express 看到的來源永遠是 127.0.0.1(nginx 自己)，會變成全公司共用同一個
+        # 額度，任何人多打幾次登入就會連累其他人一起被鎖。
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         # nginx 預設單一請求本文只有 1MB，手機拍照上傳憑證常常好幾 MB，
         # 沒調大的話上傳會在 nginx 這層被擋掉(甚至看起來像卡住，前端收不到明確的錯誤)。
         # 後端 multer 限制單檔 10MB、一次最多 5 個檔案，這裡抓寬一點含 multipart 額外開銷。
@@ -455,6 +464,13 @@ bash server/scripts/restore.sh 20260101-030000
   `sudo chown -R <服務帳號>:<服務帳號> /srv/apps/expense-platform/server/uploads` 校正回來即可，
   不用重啟服務。`backup.sh`/`restore.sh` 已經修正成每次都會自動校正這個目錄的擁有者，正常
   不會再發生，除非有人手動用 root 在 `server/uploads/` 底下操作過。
+- **明明沒打幾次密碼，登入卻顯示「登入嘗試次數過多」**：登入 API 有加 rate limit(15 分鐘
+  內同一個來源最多 20 次失敗嘗試)，是照「使用者的真實 IP」分開計算的——這需要 nginx 設定
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`(新安裝的話 `install.sh`
+  已經會加上；**在這個功能上線前就裝好的主機要自己手動補上這行、`sudo nginx -t &&
+  sudo systemctl reload nginx`**)。沒有這個設定的話，後端看到的來源永遠是 nginx 自己
+  (127.0.0.1)，會變成全公司共用同一個額度，隨便幾個人手滑多打幾次密碼，其他人也會一起
+  被鎖住、看起來像整個登入功能忽然壞掉。
 
 ---
 
