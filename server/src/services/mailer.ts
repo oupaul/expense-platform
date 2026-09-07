@@ -8,7 +8,7 @@ import { decryptSecret } from "../auth/nasSecret.js";
 // email 靜默略過、只記一次警告，站內通知(DB 那份)完全不受影響。
 let warnedMissingConfig = false;
 
-export async function sendMail(opts: { to: string; subject: string; text: string }): Promise<void> {
+export async function sendMail(opts: { to: string; subject: string; text: string; html?: string }): Promise<void> {
   const config = await prisma.notificationConfig.findUnique({ where: { id: "singleton" } });
   if (!config?.smtpEnabled || !config.smtpHost || !config.smtpUser || !config.smtpPassEnc) {
     if (!warnedMissingConfig) {
@@ -28,7 +28,13 @@ export async function sendMail(opts: { to: string; subject: string; text: string
       // 憑證驗證；只有平台管理者在「通知」分頁明確勾選「信任自我簽署憑證」才關掉驗證。
       tls: { rejectUnauthorized: !config.smtpAllowSelfSigned },
     });
-    await transporter.sendMail({ from: config.smtpFrom || config.smtpUser, to: opts.to, subject: opts.subject, text: opts.text });
+    await transporter.sendMail({
+      from: config.smtpFrom || config.smtpUser,
+      to: opts.to,
+      subject: opts.subject,
+      text: opts.text,
+      ...(opts.html ? { html: opts.html } : {}),
+    });
   } catch (err) {
     // 寄信失敗(SMTP 帳密錯誤、額度用完等)不該讓觸發通知的那個 API 請求(送出/簽核申請單)
     // 跟著失敗——使用者的申請單本身有沒有成功送出，跟通知信寄不寄得出去是兩件事。
