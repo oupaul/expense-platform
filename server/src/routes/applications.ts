@@ -143,15 +143,29 @@ async function validateApplicationInput(companyId: string, data: CreateData) {
     return { ok: false as const, status: 400, error: "此公司未開啟多幣別功能，費用項目只能使用 TWD" };
   }
 
-  // 選到「需要專案編號」的類別時，該列的專案編號不能空著(長度上限已經在 itemSchema 擋過)。
+  // 專案編號不管是不是「需要專案編號」的類別，只要有填就一定要剛好 10 碼(不是上限，是
+  // 剛好)；差別只在必填類別空白本身就不合法，非必填類別空白視同沒填、不用管長度。
+  // 這裡是最後一道防線(前端已經擋過一次)，不能只靠 zod 的 .max(10)，那只擋得住太長。
   const categoryById = new Map(categories.map((c) => [c.id, c]));
-  const missingProjectCode = data.items.find((item) => {
+  const invalidProjectCode = data.items.find((item) => {
     const category = categoryById.get(item.categoryId);
-    return category?.requiresProjectCode && !item.projectCode?.trim();
+    const code = item.projectCode?.trim() ?? "";
+    if (category?.requiresProjectCode) return code.length !== 10;
+    return code.length > 0 && code.length !== 10;
   });
-  if (missingProjectCode) {
-    const categoryName = categoryById.get(missingProjectCode.categoryId)?.name;
-    return { ok: false as const, status: 400, error: `費用項目「${categoryName}」需要填寫專案編號` };
+  if (invalidProjectCode) {
+    const category = categoryById.get(invalidProjectCode.categoryId);
+    const error = category?.requiresProjectCode
+      ? `費用項目「${category?.name}」需要填寫 10 碼的專案編號`
+      : `費用項目「${category?.name}」的專案編號必須是 10 碼`;
+    return { ok: false as const, status: 400, error };
+  }
+
+  // 受款人：公司開啟 optionalFields.payeeInfo 這個欄位時就變成必填，跟前端表單的
+  // disabled 條件保持一致——這裡是最後一道防線，前端的檢查繞得過去(直接呼叫 API)。
+  const optionalFields = company.optionalFields as { payeeInfo?: boolean };
+  if (optionalFields?.payeeInfo && !data.payeeName?.trim()) {
+    return { ok: false as const, status: 400, error: "請填寫受款人" };
   }
 
   const rateByCurrency = new Map(exchangeRates.map((r) => [r.currency, Number(r.rateToTWD)]));

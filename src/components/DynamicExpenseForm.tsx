@@ -325,14 +325,16 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
-  // 選到「需要專案編號」的類別(例如「專案相關」)時，這一列的專案編號要變必填、最多 10 碼。
+  // 選到「需要專案編號」的類別(例如「專案相關」)時，這一列的專案編號要變必填、剛好 10 碼。
   // 這個規則掛在後台可設定的 ExpenseCategory.requiresProjectCode 上，不是寫死某個類別名稱。
   const isProjectCodeRequired = (row: ExpenseRowState) =>
     expenseCategories.find((c) => c.id === row.categoryId)?.requiresProjectCode ?? false;
+  // 不管是不是必填類別，只要有填專案編號就一定要剛好 10 碼——差別只在「必填」的話空白
+  // 本身就算不合法，非必填的話空白是可以接受的(等於沒填)。
   const isProjectCodeInvalid = (row: ExpenseRowState) => {
     const code = (row.projectCode ?? "").trim();
-    if (isProjectCodeRequired(row)) return code.length === 0 || code.length > 10;
-    return code.length > 10;
+    if (isProjectCodeRequired(row)) return code.length !== 10;
+    return code.length > 0 && code.length !== 10;
   };
   // 專案編號欄位本身要不要顯示：公司整體開啟 optionalFields.projectCode，或是任何一個類別
   // 設定了必填，都要顯示——不然選到必填類別時使用者根本看不到欄位可以填。
@@ -363,7 +365,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
 
   const handleSubmit = async () => {
     if (validRows.some(isProjectCodeInvalid)) {
-      setSubmitState({ status: "error", message: "有費用明細的專案編號未填寫或超過 10 碼，請檢查標紅的欄位" });
+      setSubmitState({ status: "error", message: "有費用明細的專案編號未填寫或不是 10 碼，請檢查標紅的欄位" });
+      return;
+    }
+    if (optionalFields.payeeInfo && !payeeName.trim()) {
+      setSubmitState({ status: "error", message: "請填寫受款人" });
       return;
     }
     if (!applicantSignature) {
@@ -781,8 +787,14 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-8">
                 {optionalFields.payeeInfo && (
                   <div>
-                    <Label>受款人(第一次配合請提供銀行存摺)</Label>
-                    <Input value={payeeName} onChange={(e) => setPayeeName(e.target.value)} placeholder="請輸入受款人資訊" />
+                    <Label>受款人(請填寫完整中文名稱)<span className="text-destructive"> *必填</span></Label>
+                    <Input
+                      value={payeeName}
+                      onChange={(e) => setPayeeName(e.target.value)}
+                      placeholder="請輸入受款人資訊"
+                      className={!payeeName.trim() ? "border-destructive" : undefined}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">(第一次配合請提供銀行存摺)</p>
                   </div>
                 )}
                 {optionalFields.requestedPaymentDate && (
@@ -855,6 +867,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   total <= 0 ||
                   (multiCurrencyEnabled && rows.some((r) => r.categoryId && Number(r.amount) > 0 && amountInTWD(r) === null)) ||
                   validRows.some(isProjectCodeInvalid) ||
+                  (optionalFields.payeeInfo && !payeeName.trim()) ||
                   !applicantSignature
                 }
               >
