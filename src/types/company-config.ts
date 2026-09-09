@@ -36,8 +36,27 @@ export interface ExchangeRateConfig {
   rateToTWD: string;
 }
 
+export interface CustomFieldOptionConfig {
+  id: string;
+  label: string;
+}
+
+export interface CustomFieldConfig {
+  id: string;
+  name: string;
+  fieldType: "text" | "date" | "select";
+  options: CustomFieldOptionConfig[];
+}
+
+export interface CategoryCustomFieldLink {
+  id: string; // CustomField.id
+  required: boolean;
+}
+
 export interface ExpenseCategoryOption extends SelectOption {
   requiresProjectCode: boolean;
+  // 這個類別關聯到哪些自訂欄位——選到這個類別時，費用明細列要多顯示/要求這些欄位。
+  customFields: CategoryCustomFieldLink[];
 }
 
 export interface CompanyFormConfig {
@@ -56,4 +75,5 @@ export interface CompanyFormConfig {
   expenseCategories: ExpenseCategoryOption[];
   approvalStages: ApprovalStageConfig[];
   exchangeRates: ExchangeRateConfig[];
+  customFields: CustomFieldConfig[];
 }

@@ -3,6 +3,8 @@ import { ApprovalStageManager } from "@/components/admin/ApprovalStageManager";
 import { CompanySettingsManager } from "@/components/admin/CompanySettingsManager";
 import { ExchangeRateManager } from "@/components/admin/ExchangeRateManager";
 import { UserManager } from "@/components/admin/UserManager";
+import { CustomFieldManager } from "@/components/admin/CustomFieldManager";
+import { CategoryCustomFieldLinks } from "@/components/admin/CategoryCustomFieldLinks";
 import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 import type { AuthState } from "@/types/auth";
 
@@ -29,6 +31,12 @@ export function AdminPanel({ auth }: { auth: AuthState }) {
       </div>
       <div className="rounded-lg border bg-white p-6">
         <OptionManager auth={auth} resourcePath="expense-natures" title="費用性質" />
+      </div>
+      <div className="rounded-lg border bg-white p-6">
+        <CustomFieldManager auth={auth} />
+      </div>
+      <div className="rounded-lg border bg-white p-6">
+        <CategoryCustomFieldLinks auth={auth} />
       </div>
       <div className="rounded-lg border bg-white p-6">
         <ApprovalStageManager auth={auth} />
