@@ -24,6 +24,7 @@ interface ExpenseRowState {
   currency: string;
   projectCode?: string;
   invoiceDate?: string;
+  customFieldValues?: Record<string, string>;
 }
 
 function emptyRow(): ExpenseRowState {
@@ -158,6 +159,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
             currency: item.currency,
             projectCode: item.projectCode ?? undefined,
             invoiceDate: item.invoiceDate ? item.invoiceDate.slice(0, 10) : undefined,
+            customFieldValues: item.customFieldValues ?? undefined,
           }))
         : [emptyRow()]
     );
@@ -184,6 +186,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       invoiceDate: r.invoiceDate || undefined,
       currency: r.currency,
       amount: r.amount ? Number(r.amount) : undefined,
+      customFieldValues: r.customFieldValues,
     })),
   });
 
@@ -307,6 +310,40 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   // 設定了必填，都要顯示——不然選到必填類別時使用者根本看不到欄位可以填。
   const showProjectCodeColumn = optionalFields.projectCode || expenseCategories.some((c) => c.requiresProjectCode);
 
+  // 方案 A：桌面表格固定顯示「有被至少一個費用項目類別關聯到」的自訂欄位欄位，
+  // 跟 showProjectCodeColumn 同一套邏輯——不然類別關聯了卻沒地方能填。沒被任何類別
+  // 關聯到的自訂欄位(還在後台設定、尚未關聯)不佔欄位，避免整張表格塞滿用不到的空欄。
+  const visibleCustomFields = config.customFields.filter((field) =>
+    expenseCategories.some((c) => c.customFields.some((l) => l.id === field.id))
+  );
+  // 這一列選的類別關聯到哪些自訂欄位——沒選類別、或選的類別沒關聯任何欄位就回傳空陣列。
+  const getRowCustomFieldLinks = (row: ExpenseRowState) =>
+    expenseCategories.find((c) => c.id === row.categoryId)?.customFields ?? [];
+  const getRowCustomFieldLink = (row: ExpenseRowState, fieldId: string) =>
+    getRowCustomFieldLinks(row).find((l) => l.id === fieldId);
+  // 跟後端 validateApplicationInput 同一套規則：必填欄位不能空白；select 型欄位如果
+  // 有填值，值必須是目前有效的選項之一(公司可能事後停用/改掉某個選項)。回傳 null
+  // 代表這一列的自訂欄位都合法，否則回傳可以直接顯示給使用者看的錯誤訊息。
+  const getRowCustomFieldError = (row: ExpenseRowState): string | null => {
+    const category = expenseCategories.find((c) => c.id === row.categoryId);
+    if (!category) return null;
+    for (const link of category.customFields) {
+      const field = config.customFields.find((f) => f.id === link.id);
+      if (!field) continue;
+      const value = (row.customFieldValues?.[field.id] ?? "").trim();
+      if (link.required && !value) return `費用項目「${category.name}」需要填寫「${field.name}」`;
+      if (value && field.fieldType === "select" && !field.options.some((o) => o.label === value)) {
+        return `費用項目「${category.name}」的「${field.name}」選項不正確，請重新選擇`;
+      }
+    }
+    return null;
+  };
+  const updateRowCustomField = (index: number, fieldId: string, value: string) => {
+    setRows((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, customFieldValues: { ...row.customFieldValues, [fieldId]: value } } : row))
+    );
+  };
+
   // 只算「有選費用項目」的列，跟送出/列印時的過濾條件（categoryId 必須有值）保持一致，
   // 不然使用者會看到畫面上的合計金額跟實際送出/列印出來的金額對不起來。
   const validRows = rows.filter((r) => r.categoryId && Number(r.amount) > 0);
@@ -326,6 +363,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       currency: r.currency,
       amount: r.amount,
       amountInTWD: amountInTWD(r) === null ? null : Math.round(amountInTWD(r)! * 100) / 100,
+      // 這一列自己的類別沒關聯到的欄位、或關聯到但沒填的欄位都印成 "-"，跟方案 A
+      // 桌面表格的顯示規則一致，PrintableApplicationForm 不用再自己判斷關聯關係。
+      customFieldValues: Object.fromEntries(
+        visibleCustomFields.map((f) => [f.id, (getRowCustomFieldLink(r, f.id) ? r.customFieldValues?.[f.id] : undefined) || "-"])
+      ),
     }));
   const departmentName = departments.find((d) => d.id === departmentId)?.name ?? "";
   const expenseNatureName = expenseNatures.find((n) => n.id === expenseNatureId)?.name ?? "";
@@ -333,6 +375,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const handleSubmit = async () => {
     if (validRows.some(isProjectCodeInvalid)) {
       setSubmitState({ status: "error", message: "有費用明細的專案編號未填寫或不是 10 碼，請檢查標紅的欄位" });
+      return;
+    }
+    const customFieldError = validRows.map(getRowCustomFieldError).find((e) => e);
+    if (customFieldError) {
+      setSubmitState({ status: "error", message: customFieldError });
       return;
     }
     if (optionalFields.payeeInfo && !payeeName.trim()) {
@@ -370,6 +417,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               invoiceDate: r.invoiceDate || undefined,
               currency: r.currency,
               amount: Number(r.amount),
+              customFieldValues: r.customFieldValues,
             })),
         },
       });
@@ -422,6 +470,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
           expenseNatureName={expenseNatureName}
           optionalFields={{ ...optionalFields, projectCode: showProjectCodeColumn }}
           multiCurrencyEnabled={multiCurrencyEnabled}
+          customFields={visibleCustomFields.map((f) => ({ id: f.id, name: f.name }))}
           rows={printRows}
           payeeName={payeeName}
           requestedPaymentDate={requestedPaymentDate}
@@ -549,6 +598,9 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                           <span className="text-xs font-normal">(個人代墊可保持空白)</span>
                         </TableHead>
                       )}
+                      {visibleCustomFields.map((field) => (
+                        <TableHead key={field.id}>{field.name}</TableHead>
+                      ))}
                       {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
                       <TableHead>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
                       {multiCurrencyEnabled && <TableHead>換算 TWD</TableHead>}
@@ -607,6 +659,40 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                             </div>
                           </TableCell>
                         )}
+                        {visibleCustomFields.map((field) => {
+                          const link = getRowCustomFieldLink(row, field.id);
+                          return (
+                            <TableCell key={field.id}>
+                              {!link ? (
+                                <span className="text-muted-foreground">-</span>
+                              ) : field.fieldType === "select" ? (
+                                <Select
+                                  value={row.customFieldValues?.[field.id] ?? ""}
+                                  onValueChange={(v) => updateRowCustomField(i, field.id, v)}
+                                >
+                                  <SelectTrigger
+                                    className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                  >
+                                    <SelectValue placeholder="請選擇" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {field.options.map((o) => (
+                                      <SelectItem key={o.id} value={o.label}>{o.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input
+                                  type={field.fieldType === "date" ? "date" : "text"}
+                                  value={row.customFieldValues?.[field.id] ?? ""}
+                                  onChange={(e) => updateRowCustomField(i, field.id, e.target.value)}
+                                  placeholder={link.required ? `${field.name}(必填)` : field.name}
+                                  className={link.required && !(row.customFieldValues?.[field.id] ?? "").trim() ? "border-destructive" : undefined}
+                                />
+                              )}
+                            </TableCell>
+                          );
+                        })}
                         {multiCurrencyEnabled && (
                           <TableCell>
                             <Select value={row.currency} onValueChange={(v) => updateRow(i, { currency: v })}>
@@ -711,6 +797,45 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                         </div>
                       </div>
                     )}
+                    {/* 手機卡片比桌面表格聰明一點：只顯示這一列的類別真的有關聯到的欄位，
+                        不像桌面表格要保持欄位對齊而放一堆用不到的 "-" 佔位。 */}
+                    {getRowCustomFieldLinks(row).map((link) => {
+                      const field = config.customFields.find((f) => f.id === link.id);
+                      if (!field) return null;
+                      return (
+                        <div key={field.id}>
+                          <Label>
+                            {field.name}
+                            {link.required && <span className="text-destructive"> *必填</span>}
+                          </Label>
+                          {field.fieldType === "select" ? (
+                            <Select
+                              value={row.customFieldValues?.[field.id] ?? ""}
+                              onValueChange={(v) => updateRowCustomField(i, field.id, v)}
+                            >
+                              <SelectTrigger
+                                className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                              >
+                                <SelectValue placeholder="請選擇" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {field.options.map((o) => (
+                                  <SelectItem key={o.id} value={o.label}>{o.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              type={field.fieldType === "date" ? "date" : "text"}
+                              value={row.customFieldValues?.[field.id] ?? ""}
+                              onChange={(e) => updateRowCustomField(i, field.id, e.target.value)}
+                              placeholder={field.name}
+                              className={link.required && !(row.customFieldValues?.[field.id] ?? "").trim() ? "border-destructive" : undefined}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                     <div className={multiCurrencyEnabled ? "grid grid-cols-2 gap-3" : undefined}>
                       {multiCurrencyEnabled && (
                         <div>
@@ -841,6 +966,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   total <= 0 ||
                   (multiCurrencyEnabled && rows.some((r) => r.categoryId && Number(r.amount) > 0 && amountInTWD(r) === null)) ||
                   validRows.some(isProjectCodeInvalid) ||
+                  validRows.some((r) => !!getRowCustomFieldError(r)) ||
                   (optionalFields.payeeInfo && !payeeName.trim()) ||
                   !applicantSignature
                 }

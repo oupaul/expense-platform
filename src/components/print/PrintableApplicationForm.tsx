@@ -3,6 +3,11 @@ import { usePrintFit } from "@/hooks/usePrintFit";
 import { formatAmount } from "@/lib/utils";
 import type { Branding, OptionalFields } from "@/types/company-config";
 
+export interface PrintableCustomFieldColumn {
+  id: string;
+  name: string;
+}
+
 export interface PrintableRow {
   categoryName: string;
   description: string;
@@ -11,6 +16,9 @@ export interface PrintableRow {
   currency: string;
   amount: string;
   amountInTWD: number | null;
+  // 呼叫端已經依「這一列的類別有沒有關聯到這個欄位」解析好顯示字串(沒關聯/沒填都是
+  // "-")，這裡直接照 customFields 給的順序印出來就好，不用重新判斷關聯關係。
+  customFieldValues?: Record<string, string>;
 }
 
 export interface PrintableSignatureBox {
@@ -28,6 +36,7 @@ interface Props {
   expenseNatureName: string;
   optionalFields: OptionalFields;
   multiCurrencyEnabled: boolean;
+  customFields?: PrintableCustomFieldColumn[];
   rows: PrintableRow[];
   payeeName?: string;
   requestedPaymentDate?: string;
@@ -73,6 +82,7 @@ export function PrintableApplicationForm(props: Props) {
     expenseNatureName,
     optionalFields,
     multiCurrencyEnabled,
+    customFields = [],
     rows,
     payeeName,
     requestedPaymentDate,
@@ -111,6 +121,9 @@ export function PrintableApplicationForm(props: Props) {
           {optionalFields.invoiceDate && (
             <th className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>發票日期</th>
           )}
+          {customFields.map((field) => (
+            <th key={field.id} className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>{field.name}</th>
+          ))}
           {multiCurrencyEnabled && (
             <th className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>幣別</th>
           )}
@@ -129,6 +142,9 @@ export function PrintableApplicationForm(props: Props) {
             {optionalFields.projectCode && <td className="border border-gray-300 p-1.5">{row.projectCode || "-"}</td>}
             <td className="border border-gray-300 p-1.5">{row.description || "-"}</td>
             {optionalFields.invoiceDate && <td className="border border-gray-300 p-1.5">{row.invoiceDate || "-"}</td>}
+            {customFields.map((field) => (
+              <td key={field.id} className="border border-gray-300 p-1.5">{row.customFieldValues?.[field.id] ?? "-"}</td>
+            ))}
             {multiCurrencyEnabled && <td className="border border-gray-300 p-1.5">{row.currency}</td>}
             <td className="border border-gray-300 p-1.5">{formatAmount(row.amount)}</td>
             {multiCurrencyEnabled && (
