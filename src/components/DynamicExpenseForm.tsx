@@ -590,12 +590,14 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   (updateRow/驗證)完全共用，只有排版不同。 */}
               {/* 欄位一多(專案編號、自訂欄位)，表格會被撐得比容器寬——這裡不讓瀏覽器把每一欄
                   都往內壓縮(壓到說明欄位幾乎看不到字)，改成每一欄保留一個看得清楚的最小寬度，
-                  寬度不夠時交給 Table 元件本來就有的 overflow-auto 外層出現水平捲軸。 */}
+                  寬度不夠時交給 Table 元件本來就有的 overflow-auto 外層出現水平捲軸。「費用
+                  項目」欄位額外用 sticky 固定在最左邊(跟 Excel 凍結窗格同樣的概念)，水平捲動
+                  時這一欄一直看得到，不用捲到最左邊才知道這一列選的是哪個費用項目。 */}
               <div className="hidden md:block">
                 <Table ref={desktopTableRef}>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[9rem]">費用項目</TableHead>
+                      <TableHead className="sticky left-0 z-10 min-w-[9rem] border-r bg-white">費用項目</TableHead>
                       {showProjectCodeColumn && <TableHead className="min-w-[8rem]">專案編號</TableHead>}
                       {visibleCustomFields.map((field) => (
                         <TableHead key={field.id} className="min-w-[9rem]">{field.name}</TableHead>
@@ -617,7 +619,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   <TableBody>
                     {rows.map((row, i) => (
                       <TableRow key={i}>
-                        <TableCell>
+                        <TableCell className="sticky left-0 z-10 border-r bg-white">
                           <Select value={row.categoryId} onValueChange={(v) => updateRow(i, { categoryId: v })}>
                             <SelectTrigger><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
                             <SelectContent>
