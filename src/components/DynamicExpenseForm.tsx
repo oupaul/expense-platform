@@ -590,6 +590,9 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                     <TableRow>
                       <TableHead>費用項目</TableHead>
                       {showProjectCodeColumn && <TableHead>專案編號</TableHead>}
+                      {visibleCustomFields.map((field) => (
+                        <TableHead key={field.id}>{field.name}</TableHead>
+                      ))}
                       <TableHead>說明</TableHead>
                       {optionalFields.invoiceDate && (
                         <TableHead className="whitespace-nowrap">
@@ -598,9 +601,6 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                           <span className="text-xs font-normal">(個人代墊可保持空白)</span>
                         </TableHead>
                       )}
-                      {visibleCustomFields.map((field) => (
-                        <TableHead key={field.id}>{field.name}</TableHead>
-                      ))}
                       {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
                       <TableHead>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
                       {multiCurrencyEnabled && <TableHead>換算 TWD</TableHead>}
@@ -629,34 +629,6 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                               maxLength={10}
                               className={isProjectCodeInvalid(row) ? "border-destructive" : undefined}
                             />
-                          </TableCell>
-                        )}
-                        <TableCell>
-                          <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
-                        </TableCell>
-                        {optionalFields.invoiceDate && (
-                          <TableCell>
-                            <div className="flex gap-1">
-                              <Input
-                                type="date"
-                                className="min-w-0 flex-1"
-                                value={row.invoiceDate ?? ""}
-                                onChange={(e) => updateRow(i, { invoiceDate: e.target.value })}
-                              />
-                              {/* 手機原生日期選擇器通常沒有清除功能，補一個按鈕；表格欄位窄，
-                                  用圖示不用文字，跟旁邊「申請日期」那個獨立欄位的做法一致但省空間。 */}
-                              {row.invoiceDate && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  aria-label="清除發票日期"
-                                  onClick={() => updateRow(i, { invoiceDate: "" })}
-                                >
-                                  ✕
-                                </Button>
-                              )}
-                            </div>
                           </TableCell>
                         )}
                         {visibleCustomFields.map((field) => {
@@ -693,6 +665,34 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                             </TableCell>
                           );
                         })}
+                        <TableCell>
+                          <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
+                        </TableCell>
+                        {optionalFields.invoiceDate && (
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Input
+                                type="date"
+                                className="min-w-0 flex-1"
+                                value={row.invoiceDate ?? ""}
+                                onChange={(e) => updateRow(i, { invoiceDate: e.target.value })}
+                              />
+                              {/* 手機原生日期選擇器通常沒有清除功能，補一個按鈕；表格欄位窄，
+                                  用圖示不用文字，跟旁邊「申請日期」那個獨立欄位的做法一致但省空間。 */}
+                              {row.invoiceDate && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  aria-label="清除發票日期"
+                                  onClick={() => updateRow(i, { invoiceDate: "" })}
+                                >
+                                  ✕
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
                         {multiCurrencyEnabled && (
                           <TableCell>
                             <Select value={row.currency} onValueChange={(v) => updateRow(i, { currency: v })}>
@@ -769,34 +769,6 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                         />
                       </div>
                     )}
-                    <div>
-                      <Label>說明</Label>
-                      <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
-                    </div>
-                    {optionalFields.invoiceDate && (
-                      <div>
-                        <Label>發票日期(個人代墊可保持空白)</Label>
-                        <div className="flex gap-1">
-                          <Input
-                            type="date"
-                            className="min-w-0 flex-1"
-                            value={row.invoiceDate ?? ""}
-                            onChange={(e) => updateRow(i, { invoiceDate: e.target.value })}
-                          />
-                          {row.invoiceDate && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              aria-label="清除發票日期"
-                              onClick={() => updateRow(i, { invoiceDate: "" })}
-                            >
-                              ✕
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    )}
                     {/* 手機卡片比桌面表格聰明一點：只顯示這一列的類別真的有關聯到的欄位，
                         不像桌面表格要保持欄位對齊而放一堆用不到的 "-" 佔位。 */}
                     {getRowCustomFieldLinks(row).map((link) => {
@@ -836,6 +808,34 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                         </div>
                       );
                     })}
+                    <div>
+                      <Label>說明</Label>
+                      <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
+                    </div>
+                    {optionalFields.invoiceDate && (
+                      <div>
+                        <Label>發票日期(個人代墊可保持空白)</Label>
+                        <div className="flex gap-1">
+                          <Input
+                            type="date"
+                            className="min-w-0 flex-1"
+                            value={row.invoiceDate ?? ""}
+                            onChange={(e) => updateRow(i, { invoiceDate: e.target.value })}
+                          />
+                          {row.invoiceDate && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              aria-label="清除發票日期"
+                              onClick={() => updateRow(i, { invoiceDate: "" })}
+                            >
+                              ✕
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div className={multiCurrencyEnabled ? "grid grid-cols-2 gap-3" : undefined}>
                       {multiCurrencyEnabled && (
                         <div>

@@ -117,13 +117,13 @@ export function PrintableApplicationForm(props: Props) {
           {optionalFields.projectCode && (
             <th className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>專案編號</th>
           )}
+          {customFields.map((field) => (
+            <th key={field.id} className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>{field.name}</th>
+          ))}
           <th className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>說明</th>
           {optionalFields.invoiceDate && (
             <th className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>發票日期</th>
           )}
-          {customFields.map((field) => (
-            <th key={field.id} className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>{field.name}</th>
-          ))}
           {multiCurrencyEnabled && (
             <th className="border border-gray-300 p-1.5 text-left text-white" style={{ backgroundColor: branding.headerBgColor }}>幣別</th>
           )}
@@ -140,11 +140,11 @@ export function PrintableApplicationForm(props: Props) {
           <tr key={i}>
             <td className="border border-gray-300 p-1.5">{row.categoryName}</td>
             {optionalFields.projectCode && <td className="border border-gray-300 p-1.5">{row.projectCode || "-"}</td>}
-            <td className="border border-gray-300 p-1.5">{row.description || "-"}</td>
-            {optionalFields.invoiceDate && <td className="border border-gray-300 p-1.5">{row.invoiceDate || "-"}</td>}
             {customFields.map((field) => (
               <td key={field.id} className="border border-gray-300 p-1.5">{row.customFieldValues?.[field.id] ?? "-"}</td>
             ))}
+            <td className="border border-gray-300 p-1.5">{row.description || "-"}</td>
+            {optionalFields.invoiceDate && <td className="border border-gray-300 p-1.5">{row.invoiceDate || "-"}</td>}
             {multiCurrencyEnabled && <td className="border border-gray-300 p-1.5">{row.currency}</td>}
             <td className="border border-gray-300 p-1.5">{formatAmount(row.amount)}</td>
             {multiCurrencyEnabled && (

@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates, arrayMove } from "@dnd-kit/sortable";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { SortableItem } from "@/components/admin/SortableItem";
 import { apiFetch, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { CustomFieldItem, CustomFieldOptionItem } from "@/types/admin";
@@ -121,6 +124,7 @@ export function CustomFieldManager({ auth }: { auth: AuthState }) {
   const [newType, setNewType] = useState<CustomFieldItem["fieldType"]>("text");
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
   const { data, isLoading, isError } = useQuery({
     queryKey,
@@ -161,6 +165,21 @@ export function CustomFieldManager({ auth }: { auth: AuthState }) {
     onError,
   });
 
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds: string[]) =>
+      apiFetch(`${basePath}/reorder`, { method: "PUT", token: auth.token, body: { orderedIds } }),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!data || !over || active.id === over.id) return;
+    const oldIndex = data.findIndex((item) => item.id === active.id);
+    const newIndex = data.findIndex((item) => item.id === over.id);
+    reorderMutation.mutate(arrayMove(data, oldIndex, newIndex).map((item) => item.id));
+  };
+
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground">載入中…</div>;
   if (isError || !data) return <div className="p-4 text-sm text-destructive">載入失敗</div>;
 
@@ -169,48 +188,53 @@ export function CustomFieldManager({ auth }: { auth: AuthState }) {
       <h3 className="font-semibold">自訂欄位(費用明細)</h3>
       <p className="text-xs text-muted-foreground">
         這裡新增的欄位要另外到下面「費用項目關聯欄位」設定，選到哪個費用項目類別時才會顯示/要求填寫。
+        拖曳最左邊的把手可以調整順序(申請表單、列印/明細的欄位順序會照這裡的排序顯示)。
       </p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       {data.length === 0 && <p className="text-sm text-muted-foreground">尚未新增任何自訂欄位</p>}
-      <div className="space-y-2">
-        {data.map((field) => (
-          <div key={field.id} className="rounded border p-3">
-            <div className="flex items-center gap-2">
-              <Input
-                className="max-w-xs"
-                defaultValue={field.name}
-                onBlur={(e) => {
-                  const value = e.target.value.trim();
-                  if (value && value !== field.name) renameMutation.mutate({ id: field.id, name: value });
-                }}
-              />
-              <span className="text-xs text-muted-foreground">{FIELD_TYPE_LABEL[field.fieldType]}</span>
-              <span className={`text-xs ${field.active ? "text-green-600" : "text-muted-foreground"}`}>
-                {field.active ? "啟用中" : "已停用"}
-              </span>
-              {field.fieldType === "select" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setExpandedId(expandedId === field.id ? null : field.id)}
-                >
-                  {expandedId === field.id ? "收合選項" : "管理選項"}
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant={field.active ? "destructive" : "outline"}
-                onClick={() => toggleActiveMutation.mutate({ id: field.id, active: field.active })}
-              >
-                {field.active ? "停用" : "重新啟用"}
-              </Button>
-            </div>
-            {field.fieldType === "select" && expandedId === field.id && (
-              <CustomFieldOptions auth={auth} field={field} />
-            )}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={data.map((field) => field.id)} strategy={verticalListSortingStrategy}>
+          <div className="space-y-2">
+            {data.map((field) => (
+              <SortableItem key={field.id} id={field.id}>
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="max-w-xs"
+                    defaultValue={field.name}
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value && value !== field.name) renameMutation.mutate({ id: field.id, name: value });
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">{FIELD_TYPE_LABEL[field.fieldType]}</span>
+                  <span className={`text-xs ${field.active ? "text-green-600" : "text-muted-foreground"}`}>
+                    {field.active ? "啟用中" : "已停用"}
+                  </span>
+                  {field.fieldType === "select" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setExpandedId(expandedId === field.id ? null : field.id)}
+                    >
+                      {expandedId === field.id ? "收合選項" : "管理選項"}
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant={field.active ? "destructive" : "outline"}
+                    onClick={() => toggleActiveMutation.mutate({ id: field.id, active: field.active })}
+                  >
+                    {field.active ? "停用" : "重新啟用"}
+                  </Button>
+                </div>
+                {field.fieldType === "select" && expandedId === field.id && (
+                  <CustomFieldOptions auth={auth} field={field} />
+                )}
+              </SortableItem>
+            ))}
           </div>
-        ))}
-      </div>
+        </SortableContext>
+      </DndContext>
       <div className="flex gap-2 border-t pt-3">
         <Input
           value={newName}
