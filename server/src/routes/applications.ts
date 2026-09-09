@@ -43,6 +43,10 @@ const itemSchema = z.object({
   invoiceDate: z.coerce.date().optional(),
   currency: z.enum(ALL_CURRENCIES).default("TWD"),
   amount: z.number().positive(),
+  // key 是 CustomField.id，value 是使用者填的內容——公司自己在後台開了哪些自訂欄位
+  // 是動態的，這裡沒辦法用固定的 zod schema 描述每個欄位長怎樣，實際「這個類別需要
+  // 哪些欄位、必不必填、select 的話值合不合法」留給 validateApplicationInput 查資料庫驗證。
+  customFieldValues: z.record(z.string()).optional(),
 });
 
 const createSchema = z.object({
@@ -70,6 +74,7 @@ const draftItemSchema = z.object({
   invoiceDate: z.coerce.date().optional(),
   currency: z.enum(ALL_CURRENCIES).default("TWD"),
   amount: z.number().optional(),
+  customFieldValues: z.record(z.string()).optional(),
 });
 
 const draftSchema = z.object({
@@ -129,6 +134,12 @@ async function validateApplicationInput(companyId: string, data: CreateData) {
     prisma.expenseNature.findFirst({ where: { id: data.expenseNatureId, companyId } }),
     prisma.expenseCategory.findMany({
       where: { id: { in: data.items.map((i) => i.categoryId) }, companyId },
+      include: {
+        customFields: {
+          where: { customField: { active: true } },
+          include: { customField: { include: { options: { where: { active: true } } } } },
+        },
+      },
     }),
     prisma.exchangeRate.findMany({ where: { companyId } }),
   ]);
@@ -159,6 +170,34 @@ async function validateApplicationInput(companyId: string, data: CreateData) {
       ? `費用項目「${category?.name}」需要填寫 10 碼的專案編號`
       : `費用項目「${category?.name}」的專案編號必須是 10 碼`;
     return { ok: false as const, status: 400, error };
+  }
+
+  // 自訂欄位：跟專案編號同一種道理，選到某個類別時可能要求填某幾個自訂欄位(後台
+  // 「費用項目」的類別各自設定跟哪些自訂欄位關聯、是不是必填)，這裡是最後一道防線。
+  // select 型的欄位還要檢查填的值真的是目前還啟用中的選項之一，不能塞任意字串進去。
+  for (const item of data.items) {
+    const category = categoryById.get(item.categoryId);
+    if (!category) continue;
+    for (const link of category.customFields) {
+      const value = item.customFieldValues?.[link.customFieldId]?.trim() ?? "";
+      if (link.required && !value) {
+        return {
+          ok: false as const,
+          status: 400,
+          error: `費用項目「${category.name}」需要填寫「${link.customField.name}」`,
+        };
+      }
+      if (value && link.customField.fieldType === "select") {
+        const validLabels = new Set(link.customField.options.map((o) => o.label));
+        if (!validLabels.has(value)) {
+          return {
+            ok: false as const,
+            status: 400,
+            error: `費用項目「${category.name}」的「${link.customField.name}」選項不正確，請重新選擇`,
+          };
+        }
+      }
+    }
   }
 
   // 受款人：公司開啟 optionalFields.payeeInfo 這個欄位時就變成必填，跟前端表單的
@@ -230,6 +269,7 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
           currency: item.currency,
           amount: item.amount,
           amountInTWD: item.amountInTWD as number,
+          customFieldValues: item.customFieldValues,
         })),
       },
       approvalRecords: {
@@ -442,6 +482,7 @@ applicationsRouter.post("/:id/submit-draft", async (req: CompanyScopedWithId, re
           currency: item.currency,
           amount: item.amount,
           amountInTWD: item.amountInTWD as number,
+          customFieldValues: item.customFieldValues,
         })),
       },
       approvalRecords: { create: stages.map((stage) => ({ stageId: stage.id, status: "waiting" })) },
@@ -636,6 +677,7 @@ applicationsRouter.post("/:id/resubmit", async (req: CompanyScopedWithId, res) =
               currency: item.currency,
               amount: item.amount,
               amountInTWD: item.amountInTWD as number,
+              customFieldValues: item.customFieldValues,
             })),
           },
         },

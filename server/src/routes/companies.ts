@@ -47,10 +47,24 @@ companiesRouter.get("/:slug/config", async (req, res) => {
     where: { slug: req.params.slug },
     include: {
       departments: { where: { active: true }, orderBy: { sortOrder: "asc" } },
-      expenseCategories: { where: { active: true }, orderBy: { sortOrder: "asc" } },
+      expenseCategories: {
+        where: { active: true },
+        orderBy: { sortOrder: "asc" },
+        include: {
+          customFields: {
+            where: { customField: { active: true } },
+            select: { customFieldId: true, required: true },
+          },
+        },
+      },
       expenseNatures: { where: { active: true }, orderBy: { sortOrder: "asc" } },
       approvalStages: { where: { active: true }, orderBy: { stageOrder: "asc" } },
       exchangeRates: true,
+      customFields: {
+        where: { active: true },
+        orderBy: { sortOrder: "asc" },
+        include: { options: { where: { active: true }, orderBy: { sortOrder: "asc" } } },
+      },
     },
   });
 
@@ -84,6 +98,13 @@ companiesRouter.get("/:slug/config", async (req, res) => {
       id: c.id,
       name: c.name,
       requiresProjectCode: c.requiresProjectCode,
+      customFields: c.customFields.map((link) => ({ id: link.customFieldId, required: link.required })),
+    })),
+    customFields: company.customFields.map((f) => ({
+      id: f.id,
+      name: f.name,
+      fieldType: f.fieldType,
+      options: f.options.map((o) => ({ id: o.id, label: o.label })),
     })),
     approvalStages: company.approvalStages.map((s) => ({
       id: s.id,

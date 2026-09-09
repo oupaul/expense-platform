@@ -123,6 +123,7 @@ model Company {
   applications      ExpenseApplication[]
   notifications     Notification[]
   numberCounters    ApplicationNumberCounter[]
+  customFields      CustomField[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -171,10 +172,60 @@ model ExpenseCategory {
   // 選到這個類別時，費用明細列的專案編號要變必填(且最多 10 碼)，例如「專案相關」。
   requiresProjectCode Boolean @default(false)
 
-  items ExpenseItem[]
+  items        ExpenseItem[]
+  customFields ExpenseCategoryCustomField[]
 
   @@unique([companyId, name])
   @@index([companyId, active])
+}
+
+// ── 自訂欄位(掛在每一筆費用明細上) ───────────────────
+// 讓公司自己在後台新增欄位，取代原本只能靠改程式碼才能加新欄位的限制。目前只支援
+// 掛在「每一筆費用明細」上，不是整張申請單——這跟專案編號/發票日期本來就是掛在
+// ExpenseItem 上的性質一致，不是隨便的取捨。
+model CustomField {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  // "text" / "date" / "select"——select 才會用到 CustomFieldOption。
+  fieldType String  @default("text")
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  options       CustomFieldOption[]
+  categoryLinks ExpenseCategoryCustomField[]
+
+  @@unique([companyId, name])
+  @@index([companyId, active])
+}
+
+model CustomFieldOption {
+  id            String      @id @default(cuid())
+  customFieldId String
+  customField   CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  label         String
+  sortOrder     Int         @default(0)
+  active        Boolean     @default(true)
+
+  @@unique([customFieldId, label])
+  @@index([customFieldId, active])
+}
+
+// 費用類別 ↔ 自訂欄位的關聯：選到這個類別時，費用明細列要多顯示哪些自訂欄位、
+// 是不是必填。是 ExpenseCategory.requiresProjectCode 的推廣版——差別是可以關聯
+// 「任意幾個」自訂欄位，不是寫死一個布林值對應一個欄位。
+model ExpenseCategoryCustomField {
+  id                String          @id @default(cuid())
+  expenseCategoryId String
+  expenseCategory   ExpenseCategory @relation(fields: [expenseCategoryId], references: [id], onDelete: Cascade)
+  customFieldId     String
+  customField       CustomField     @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  // 這個類別底下，這個自訂欄位是必填還是選填——比照 requiresProjectCode 預設必填，
+  // 但不是每個關聯都一定要必填(例如某個欄位只是想順便帶出來參考，不想擋住送出)。
+  required Boolean @default(true)
+
+  @@unique([expenseCategoryId, customFieldId])
 }
 
 model ExpenseNature {
@@ -346,6 +397,12 @@ model ExpenseItem {
   currency     String  @default("TWD") // multiCurrencyEnabled 時才會有 TWD 以外的值
   amount       Decimal @db.Decimal(12, 2)
   amountInTWD  Decimal @db.Decimal(12, 2)
+
+  // 自訂欄位的值，key 是 CustomField.id、value 是使用者填的內容(文字/日期字串/
+  // select 選項的 label)。用 id 當 key 而不是欄位名稱，欄位改名不會讓舊資料對不上；
+  // 用 JSON 而不是每加一個自訂欄位就新增一個資料庫欄位，公司自己在後台新增欄位
+  // 不需要跑 migration。
+  customFieldValues Json?
 
   @@index([applicationId])
 }
