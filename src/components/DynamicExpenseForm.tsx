@@ -584,26 +584,29 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   瀏覽器會被迫把「專案編號」這種標題擠成一字一行的直排、輸入框窄到
                   看不到內容，改用下面的卡片式直向版面，同一份資料兩套渲染，邏輯
                   (updateRow/驗證)完全共用，只有排版不同。 */}
+              {/* 欄位一多(專案編號、自訂欄位)，表格會被撐得比容器寬——這裡不讓瀏覽器把每一欄
+                  都往內壓縮(壓到說明欄位幾乎看不到字)，改成每一欄保留一個看得清楚的最小寬度，
+                  寬度不夠時交給 Table 元件本來就有的 overflow-auto 外層出現水平捲軸。 */}
               <div className="hidden md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>費用項目</TableHead>
-                      {showProjectCodeColumn && <TableHead>專案編號</TableHead>}
+                      <TableHead className="min-w-[9rem]">費用項目</TableHead>
+                      {showProjectCodeColumn && <TableHead className="min-w-[8rem]">專案編號</TableHead>}
                       {visibleCustomFields.map((field) => (
-                        <TableHead key={field.id}>{field.name}</TableHead>
+                        <TableHead key={field.id} className="min-w-[9rem]">{field.name}</TableHead>
                       ))}
-                      <TableHead>說明</TableHead>
+                      <TableHead className="min-w-[14rem]">說明</TableHead>
                       {optionalFields.invoiceDate && (
-                        <TableHead className="whitespace-nowrap">
+                        <TableHead className="min-w-[10rem] whitespace-nowrap">
                           發票日期
                           <br />
                           <span className="text-xs font-normal">(個人代墊可保持空白)</span>
                         </TableHead>
                       )}
-                      {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
-                      <TableHead>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
-                      {multiCurrencyEnabled && <TableHead>換算 TWD</TableHead>}
+                      {multiCurrencyEnabled && <TableHead className="min-w-[6rem]">幣別</TableHead>}
+                      <TableHead className="min-w-[7rem]">金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
+                      {multiCurrencyEnabled && <TableHead className="min-w-[7rem]">換算 TWD</TableHead>}
                       <TableHead />
                     </TableRow>
                   </TableHeader>
