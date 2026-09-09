@@ -121,6 +121,7 @@ function draftItemsToCreate(items: DraftData["items"]) {
       currency: item.currency,
       amount: item.amount ?? 0,
       amountInTWD: item.amount ?? 0,
+      customFieldValues: item.customFieldValues,
     }));
 }
 

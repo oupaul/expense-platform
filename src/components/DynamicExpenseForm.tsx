@@ -72,6 +72,10 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const queryClient = useQueryClient();
   const basePath = `/companies/${auth.user.companyId}/applications`;
   const { data: config, isLoading, isError } = useCompanyConfig(auth.user.companySlug);
+  // 桌面費用明細表格欄位一多會水平捲動，拿這個 ref 是為了「新增一列」時能把捲軸
+  // 歸位到最左邊(見下面 Button 的 onClick)——Table 元件把 ref 轉發到 <table> 本身，
+  // 它的直接父層就是負責捲動的 overflow-auto 容器。
+  const desktopTableRef = useRef<HTMLTableElement>(null);
   const [rows, setRows] = useState<ExpenseRowState[]>([emptyRow()]);
   const [departmentId, setDepartmentId] = useState("");
   const [expenseNatureId, setExpenseNatureId] = useState("");
@@ -588,7 +592,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   都往內壓縮(壓到說明欄位幾乎看不到字)，改成每一欄保留一個看得清楚的最小寬度，
                   寬度不夠時交給 Table 元件本來就有的 overflow-auto 外層出現水平捲軸。 */}
               <div className="hidden md:block">
-                <Table>
+                <Table ref={desktopTableRef}>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[9rem]">費用項目</TableHead>
@@ -872,7 +876,19 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                 ))}
               </div>
 
-              <Button className="mt-2" onClick={() => setRows((prev) => [...prev, emptyRow()])}>
+              <Button
+                className="mt-2"
+                onClick={() => {
+                  setRows((prev) => [...prev, emptyRow()]);
+                  // 新增一列後把桌面表格的水平捲軸歸位到最左邊——不然使用者剛才如果為了
+                  // 看後面的欄位(自訂欄位/金額)往右滑過，新增出來的空白列(從「費用項目」
+                  // 這個最左邊的欄位開始填)會被捲到看不到，還要自己往回滑才找得到。
+                  // behavior:"smooth" 在分頁被瀏覽器判定為背景/非可視狀態時(常見於自動化
+                  // 測試環境、或視窗切走)動畫不會真的執行(scrollLeft 完全不會變)，改用
+                  // "auto" 直接跳到底，才能確保這個歸位動作在任何情況下都真的會生效。
+                  desktopTableRef.current?.parentElement?.scrollTo({ left: 0, behavior: "auto" });
+                }}
+              >
                 ＋ 新增一列
               </Button>
             </div>
