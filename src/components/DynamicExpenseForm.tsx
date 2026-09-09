@@ -86,16 +86,13 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     status: "idle",
   });
 
-  // 這次工作階段自動存出來的草稿 id——只有「一開始沒有 editApplicationId、使用者從空白
+  // 這次工作階段存出來的草稿 id——只有「一開始沒有 editApplicationId、使用者從空白
   // 表單開始填」這種情境才會用到。已經是透過「我的申請」帶 editApplicationId 進來的，
   // 不需要另外存一個，editApplicationId 本身就是那個 id。
   const [sessionDraftId, setSessionDraftId] = useState<string | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
-  const draftSaveGeneration = useRef(0);
-  // 送出成功後刻意保留部門/費用性質(方便連續送同部門的好幾張申請單)，但這會讓自動存草稿
-  // 的判斷誤以為「表單不是空的」，緊接著在使用者什麼都還沒打之前就無中生有建一筆新草稿。
-  // 用這個旗標跳過送出成功後的下一次自動存檔，之後使用者真的再動手改欄位才會恢復正常運作。
-  const suppressNextAutosave = useRef(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
 
   // 三種狀態互斥：直接建立(從沒進來過編輯模式)、繼續編輯草稿、編輯被退回的申請單重新送出。
   // activeId 是「目前這個表單工作階段對應到後端哪一筆申請單」——沒有 editApplicationId 時
@@ -168,6 +165,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     // (這張單內容改過了，舊簽名等於簽在改版前的內容上，沒有意義)。
     setApplicantSignature(isDraft ? data.applicantSignature : null);
     setSubmitState({ status: "idle" });
+    setDraftSaveError(null);
   }, [editApplicationId, editQuery.data, editQuery.isFetching]);
 
   // 存草稿要送出去的內容，debounce 自動存跟「附件搶在自動存之前先手動建一筆」共用同一份，
@@ -206,68 +204,36 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     return created.id;
   };
 
-  // 排好但還沒真的觸發的存檔動作放這裡——目的是切分頁離開這個表單(元件真的卸載)時，
-  // 如果剛好有一筆修改還卡在 800ms 的 debounce 裡沒存到，能在卸載前補存一次，不要讓
-  // 使用者「改了東西、馬上切走」的那筆修改因為 debounce 還沒到就直接消失。只有元件真的
-  // 卸載才需要這樣搶救——同一個表單裡因為使用者繼續打字而讓這個 effect 重新排程，
-  // 純粹是「這筆存檔還沒排到就被更新的內容取代」，不需要也不該在那個時間點強制存檔
-  // (那樣等於每打一個字就存一次，失去 debounce 的意義)。
-  const pendingSaveRef = useRef<(() => Promise<void>) | null>(null);
-
-  // 表單內容一有變動就(debounce 過)存到後端當草稿——只有「直接建立」或「繼續編輯草稿」
-  // 這兩種情境需要，編輯被退回的申請單不套用這個(那個情境本來就有自己一套用伺服器內容
+  // 改成手動存草稿：使用者自己按「儲存草稿」才會真的打 API，不再是打字後 800ms 自動存檔。
+  // 原因是自動存檔會讓「隨手點進來看看、打幾個字又離開」的操作也留下一筆草稿，「我的申請」
+  // 清單容易堆積一堆從沒真的想送出的殘留草稿。只有「直接建立」或「繼續編輯草稿」這兩種
+  // 情境用得到這顆按鈕，編輯被退回的申請單不適用(那個情境本來就有自己一套用伺服器內容
   // 預填、送出時打 resubmit 的流程，草稿存檔邏輯混進去只會搞亂狀態)。
-  useEffect(() => {
-    if (editApplicationId && !isDraftMode) return; // 正在編輯被退回的申請單，不自動存草稿
-    // 關鍵：Hooks 一定要每次 render 都無條件呼叫，不能寫在上面「載入中」那個 early return
-    // 之後——代表這支 effect 在「繼續編輯」剛掛載、editQuery 都還沒抓回真正內容那一瞬間
-    // 就已經在跑了，這時候欄位還是初始預設值(例如 applicationDate 預設今天)。如果沒有
-    // 這道檢查，等一下 800ms 一到就會拿這些「根本還沒真正還原」的預設值去蓋掉伺服器上
-    // 已經存好的正確內容——實測真的中過這個問題(清空的日期被存回今天)。等下面那個
-    // 還原 effect 真的把 editApplicationId 對應的內容套用完(appliedEditId 對上了)才能存。
-    if (editApplicationId && appliedEditId.current !== editApplicationId) return;
-    if (suppressNextAutosave.current) {
-      suppressNextAutosave.current = false;
+  // 手機拍照上傳附件是唯一保留「自動」建立草稿的例外(見上面 ensureDraftId)——那是為了
+  // 保護「已經拍下來、不容易重拍」的照片，跟「隨手瀏覽表單」的性質不一樣，觸發頻率也低
+  // 很多，不會造成草稿氾濫，所以刻意不跟著這次改動拿掉。
+  const handleSaveDraft = async () => {
+    if (isBlankForm({ departmentId, expenseNatureId, payeeName, requestedPaymentDate, applicantSignature, rows })) {
+      setDraftSaveError("表單目前是空的，沒有內容可以儲存");
       return;
     }
-    if (!activeId && isBlankForm({ departmentId, expenseNatureId, payeeName, requestedPaymentDate, applicantSignature, rows })) {
-      return; // 從沒存過草稿、表單也還是空的，不要無中生有建一筆
-    }
-    const generation = ++draftSaveGeneration.current;
-    const performSave = async () => {
-      pendingSaveRef.current = null;
+    setDraftSaveError(null);
+    setSavingDraft(true);
+    try {
       const body = buildDraftBody();
-      try {
-        if (activeId) {
-          await apiFetch(`${basePath}/${activeId}/draft`, { method: "PUT", token: auth.token, body });
-        } else {
-          const created = await apiFetch<{ id: string }>(`${basePath}/draft`, {
-            method: "POST",
-            token: auth.token,
-            body,
-          });
-          // 存的過程中使用者可能已經又改了別的欄位、甚至畫面已經切走再切回來——
-          // 只有「還是最新這一次」的存檔結果才要真的套用，不然舊的回應蓋掉新的狀態。
-          if (draftSaveGeneration.current === generation) setSessionDraftId(created.id);
-        }
-        if (draftSaveGeneration.current === generation) setDraftSavedAt(new Date().toISOString());
-      } catch {
-        // 存草稿失敗(網路問題等)不用跳出來打斷使用者填表單，反正下一次變動又會重試存一次。
+      if (activeId) {
+        await apiFetch(`${basePath}/${activeId}/draft`, { method: "PUT", token: auth.token, body });
+      } else {
+        const created = await apiFetch<{ id: string }>(`${basePath}/draft`, { method: "POST", token: auth.token, body });
+        setSessionDraftId(created.id);
       }
-    };
-    pendingSaveRef.current = performSave;
-    const timer = setTimeout(performSave, 800);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editApplicationId, isDraftMode, activeId, departmentId, expenseNatureId, applicationDate, payeeName, requestedPaymentDate, rows, applicantSignature]);
-
-  // 真的卸載(切到別的分頁、登出等)時，把還沒來得及觸發的存檔動作立刻補跑一次。
-  useEffect(() => {
-    return () => {
-      pendingSaveRef.current?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      setDraftSavedAt(new Date().toISOString());
+    } catch (err) {
+      setDraftSaveError(err instanceof ApiError ? err.message : "儲存草稿失敗，請稍後再試一次");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
 
   // 「取消編輯」只是離開編輯畫面回到空白表單，不會動到伺服器上的草稿/被退回申請單——
   // 真的要刪草稿要按旁邊那顆明確標示「刪除」的按鈕，避免手滑點錯就把東西弄丟。
@@ -281,6 +247,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     setApplicantSignature(null);
     setSessionDraftId(null);
     setDraftSavedAt(null);
+    setDraftSaveError(null);
     stagedAttachments.forEach((f) => URL.revokeObjectURL(f.previewUrl));
     setStagedAttachments([]);
     setSubmitState({ status: "idle" });
@@ -428,7 +395,6 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       if (activeId) {
         queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, activeId] });
       }
-      suppressNextAutosave.current = true;
       setRows([emptyRow()]);
       setPayeeName("");
       setRequestedPaymentDate("");
@@ -436,6 +402,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       setStagedAttachments([]);
       setSessionDraftId(null);
       setDraftSavedAt(null);
+      setDraftSaveError(null);
       if (editApplicationId) onDoneEditing?.();
     } catch (err) {
       setSubmitState({ status: "error", message: err instanceof ApiError ? err.message : "送出失敗" });
@@ -479,8 +446,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
           {isDraftMode && activeId && (
             <div className="flex items-center justify-between rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
               <span>
-                {editApplicationId ? "正在繼續編輯草稿。" : "已自動存成草稿。"}
-                內容會持續自動暫存，離開後可以在「我的申請」找到並繼續編輯。
+                {editApplicationId ? "正在繼續編輯草稿。" : "已建立草稿。"}
+                記得手動按「儲存草稿」，最新修改的內容才會保留；離開後可以在「我的申請」找到並繼續編輯。
               </span>
               <div className="flex gap-2">
                 {editApplicationId && (
@@ -846,14 +813,21 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               <SignaturePad value={applicantSignature} onChange={setApplicantSignature} label="申請人簽名(送出前必填)" />
             </div>
 
-            <div className="flex items-center justify-end gap-3">
-              {isDraftMode && draftSavedAt && submitState.status === "idle" && (
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              {draftSaveError && <p className="text-sm text-destructive">{draftSaveError}</p>}
+              {!draftSaveError && isDraftMode && draftSavedAt && submitState.status === "idle" && (
                 <p className="text-xs text-muted-foreground">
-                  已自動存成草稿({new Date(draftSavedAt).toLocaleTimeString("zh-TW")})
+                  已儲存草稿({new Date(draftSavedAt).toLocaleTimeString("zh-TW")})
                 </p>
               )}
               {submitState.status === "success" && <p className="text-sm text-green-600">{submitState.message}</p>}
               {submitState.status === "error" && <p className="text-sm text-destructive">{submitState.message}</p>}
+              {/* 退回重新編輯不適用草稿(那個情境送出時打 resubmit，不是草稿流程)，不顯示這顆按鈕。 */}
+              {(!editApplicationId || isDraftMode) && (
+                <Button variant="outline" onClick={handleSaveDraft} disabled={savingDraft}>
+                  {savingDraft ? "儲存中…" : "儲存草稿"}
+                </Button>
+              )}
               <Button variant="outline" onClick={() => window.print()}>
                 📄 列印 / 匯出 PDF
               </Button>
