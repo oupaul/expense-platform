@@ -78,6 +78,12 @@ companiesRouter.get("/:slug/config", async (req, res) => {
     appNumberDateFormat: company.appNumberDateFormat,
     appNumberResetPeriod: company.appNumberResetPeriod,
     appNumberSeqDigits: company.appNumberSeqDigits,
+    // Tenant ID / Client ID 不是密鑰——SPA 型態的 Azure App 註冊搭配 PKCE 本來就
+    // 沒有 Client Secret，前端登入頁本來就要用這兩個值組 Microsoft 登入網址，
+    // 公開端點回傳它們沒有安全疑慮(這點跟一般 OAuth 的 client_id 公開是同樣道理)。
+    m365Enabled: company.m365Enabled,
+    m365TenantId: company.m365TenantId ?? undefined,
+    m365ClientId: company.m365ClientId ?? undefined,
     departments: company.departments.map((d) => ({ id: d.id, name: d.name })),
     expenseNatures: company.expenseNatures.map((n) => ({ id: n.id, name: n.name })),
     expenseCategories: company.expenseCategories.map((c) => ({
@@ -122,6 +128,15 @@ const settingsSchema = z.object({
   appNumberDateFormat: z.enum(["none", "roc", "yyyyMMdd", "yyMMdd"]).optional(),
   appNumberResetPeriod: z.enum(["daily", "monthly", "yearly", "never"]).optional(),
   appNumberSeqDigits: z.number().int().min(1).max(6).optional(),
+  // Microsoft 365 SSO：這家公司自己 Azure AD 的 Tenant ID(GUID 或已驗證的網域，例如
+  // contoso.onmicrosoft.com)/Client ID(一定是 GUID)。空字串代表清掉、關閉這個功能
+  // 用的設定。SPA 型態的 Azure App 註冊搭配 PKCE 不需要 Client Secret，這裡沒有任何
+  // 密鑰要處理，也是為什麼可以讓管理員自己在後台直接填、不用另外走加密欄位那套。
+  m365Enabled: z.boolean().optional(),
+  m365TenantId: z.union([z.string().min(1), z.literal("")]).optional(),
+  m365ClientId: z
+    .union([z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Client ID 格式不正確(應為 GUID)"), z.literal("")])
+    .optional(),
 });
 
 // PUT /api/companies/:companyId/settings  （用 companyId 而非 slug，跟其他後台管理路由一致）
@@ -141,7 +156,7 @@ companiesRouter.put(
 
     // optionalFields 存在 Company 上的單一 JSON 欄位裡，這裡只更新有帶到的欄位，
     // 沒帶到的維持原樣，不能直接整包覆蓋掉沒動到的開關。
-    const { optionalFields, logoUrl, appUrl, ...rest } = parsed.data;
+    const { optionalFields, logoUrl, appUrl, m365TenantId, m365ClientId, ...rest } = parsed.data;
     const mergedOptionalFields = optionalFields
       ? { ...(existing.optionalFields as Record<string, boolean>), ...optionalFields }
       : undefined;
@@ -152,6 +167,8 @@ companiesRouter.put(
         ...rest,
         ...(logoUrl !== undefined ? { logoUrl: logoUrl || null } : {}),
         ...(appUrl !== undefined ? { appUrl: appUrl || null } : {}),
+        ...(m365TenantId !== undefined ? { m365TenantId: m365TenantId || null } : {}),
+        ...(m365ClientId !== undefined ? { m365ClientId: m365ClientId || null } : {}),
         ...(mergedOptionalFields ? { optionalFields: mergedOptionalFields } : {}),
       },
     });
@@ -168,6 +185,9 @@ companiesRouter.put(
       appNumberDateFormat: company.appNumberDateFormat,
       appNumberResetPeriod: company.appNumberResetPeriod,
       appNumberSeqDigits: company.appNumberSeqDigits,
+      m365Enabled: company.m365Enabled,
+      m365TenantId: company.m365TenantId,
+      m365ClientId: company.m365ClientId,
     });
   }
 );

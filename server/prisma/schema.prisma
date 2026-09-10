@@ -114,6 +114,15 @@ model Company {
   // 流水號補零到幾位數，例如 2 -> "01"、"02"...、"99"、"100"(超過位數不截斷，正常往上長)。
   appNumberSeqDigits  Int     @default(2)
 
+  // Microsoft 365(Azure AD)單一登入——每家租戶各自在自己的 Azure AD 建立一個 App
+  // 註冊(型態選「單頁應用程式 SPA」)，前端直接跟 Microsoft 用 Authorization Code +
+  // PKCE 交換 token，SPA 型態的 App 註冊本來就不會有 Client Secret，所以這裡刻意
+  // 不存任何密鑰。Tenant ID / Client ID 不是密鑰(前端本來就要用它們組登入網址)，
+  // 直接明碼存，也會透過 GET /:slug/config 這個公開端點回給前端。
+  m365Enabled  Boolean @default(false)
+  m365TenantId String?
+  m365ClientId String?
+
   departments       Department[]
   expenseCategories ExpenseCategory[]
   expenseNatures    ExpenseNature[]

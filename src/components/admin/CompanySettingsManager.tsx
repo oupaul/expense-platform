@@ -13,6 +13,8 @@ const OPTIONAL_FIELD_LABELS: { key: keyof OptionalFields; label: string }[] = [
   { key: "requestedPaymentDate", label: "需求付款日(表單下方顯示指定付款日期欄位)" },
 ];
 
+const GUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const SELECT_CLASS =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
@@ -37,6 +39,10 @@ function previewApplicationNumber(prefix: string, dateFormat: string, seqDigits:
 export function CompanySettingsManager({ auth, config }: { auth: AuthState; config: CompanyFormConfig }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  // Client ID 一定是 GUID，先在前端擋掉明顯打錯格式的輸入，不要每次都送到後端讓
+  // zod 擋下來才知道——後端的驗證訊息是整包 flatten() 物件，前端 apiFetch 只認得出
+  // 純字串的 error，顯示出來只會是「請求失敗 (400)」，不像其他欄位一樣看得懂哪裡錯。
+  const [clientIdError, setClientIdError] = useState<string | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["company-config", auth.user.companySlug] });
   const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : "更新失敗");
@@ -96,6 +102,13 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
         token: auth.token,
         body: { printRowsPerPage },
       }),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const m365Mutation = useMutation({
+    mutationFn: (patch: { m365Enabled?: boolean; m365TenantId?: string; m365ClientId?: string }) =>
+      apiFetch(`/companies/${auth.user.companyId}/settings`, { method: "PUT", token: auth.token, body: patch }),
     onSuccess: invalidate,
     onError,
   });
@@ -299,6 +312,70 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
             <p className="text-xs text-muted-foreground">
               編號只會在申請單正式送出的當下產生(草稿不編號)，避免草稿被刪掉留下不連續的號碼空缺；
               啟用這個功能之前建立的舊申請單不會回頭補編號。
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3 border-t pt-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={config.m365Enabled}
+            onChange={(e) => m365Mutation.mutate({ m365Enabled: e.target.checked })}
+            disabled={m365Mutation.isPending}
+          />
+          啟用 Microsoft 365 單一登入(SSO)
+        </label>
+        {config.m365Enabled && (
+          <div className="space-y-3 pl-6">
+            <p className="text-xs text-muted-foreground">
+              請貴公司的 IT 人員到 Azure AD 註冊一個新的應用程式，類型選擇「單頁應用程式(SPA)」，
+              Redirect URI 填下面這個網址；這種類型的應用程式不需要、也不會產生 Client Secret，
+              不用填任何密鑰進來。
+            </p>
+            <div className="rounded bg-slate-50 p-2 text-xs">
+              <span className="text-muted-foreground">Redirect URI：</span>
+              <span className="font-mono">{window.location.origin}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Tenant ID</Label>
+                <Input
+                  defaultValue={config.m365TenantId ?? ""}
+                  placeholder="Azure AD 租戶 ID"
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value !== (config.m365TenantId ?? "")) m365Mutation.mutate({ m365TenantId: value });
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Client ID</Label>
+                <Input
+                  defaultValue={config.m365ClientId ?? ""}
+                  placeholder="應用程式(用戶端)識別碼"
+                  className={clientIdError ? "border-destructive" : undefined}
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value === (config.m365ClientId ?? "")) return;
+                    if (value && !GUID_REGEX.test(value)) {
+                      setClientIdError("Client ID 格式不正確，應為 GUID(例如 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)");
+                      return;
+                    }
+                    setClientIdError(null);
+                    m365Mutation.mutate({ m365ClientId: value });
+                  }}
+                />
+                {clientIdError && <p className="mt-1 text-xs text-destructive">{clientIdError}</p>}
+              </div>
+            </div>
+            {(!config.m365TenantId || !config.m365ClientId) && (
+              <p className="text-xs text-destructive">Tenant ID、Client ID 都填寫完整後，登入頁才會出現 Microsoft 登入按鈕。</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              這個系統不會自動建立新帳號——使用者要先在下面「使用者帳號」用同一個 email
+              建好帳號，才能用 Microsoft 帳號登入；密碼登入方式不受影響，兩種登入方式並存。
             </p>
           </div>
         )}

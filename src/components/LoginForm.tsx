@@ -7,6 +7,7 @@ import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 
 interface Props {
   onLogin: (companySlug: string, email: string, password: string) => Promise<unknown>;
+  onLoginWithM365: (companySlug: string, tenantId: string, clientId: string) => Promise<unknown>;
 }
 
 // 預填示範帳號、底下的提示文字都只在本機開發(`npm run dev`)有意義——那是唯一能保證
@@ -15,12 +16,13 @@ interface Props {
 // 寫死在這裡的話兩種情境都會秀出來，正式站沒有這些帳號會讓人以為是空白畫面壞掉。
 const SHOW_DEMO_HINT = import.meta.env.DEV;
 
-export function LoginForm({ onLogin }: Props) {
+export function LoginForm({ onLogin, onLoginWithM365 }: Props) {
   const [companySlug, setCompanySlug] = useState(SHOW_DEMO_HINT ? "demo-a" : "");
   const [email, setEmail] = useState(SHOW_DEMO_HINT ? "applicant@demo-a.test" : "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [m365Submitting, setM365Submitting] = useState(false);
 
   // 登入頁的標題要跟著使用者正在打的公司代號走(客戶要求：每家租戶登入頁看到的名稱要是
   // 自己公司的名字，不是寫死的通用系統名稱)。用打字時 debounce 一下再查，不要每打一個字
@@ -46,6 +48,26 @@ export function LoginForm({ onLogin }: Props) {
     }
   };
 
+  const handleM365Login = async () => {
+    if (!config?.m365TenantId || !config.m365ClientId) return;
+    setError(null);
+    setM365Submitting(true);
+    try {
+      await onLoginWithM365(companySlug, config.m365TenantId, config.m365ClientId);
+    } catch (err) {
+      const errorCode = err instanceof Error && "errorCode" in err ? (err as Error & { errorCode: string }).errorCode : undefined;
+      if (errorCode === "user_cancelled") {
+        // 使用者自己關掉登入彈跳視窗(取消登入)，屬於正常操作，不用顯示錯誤訊息嚇到使用者。
+      } else if (errorCode === "popup_window_error") {
+        setError("瀏覽器封鎖了登入彈跳視窗，請允許此網站開啟彈跳視窗後再試一次");
+      } else {
+        setError(err instanceof ApiError ? err.message : "Microsoft 登入失敗，請重新嘗試");
+      }
+    } finally {
+      setM365Submitting(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100">
       <form onSubmit={handleSubmit} className="w-80 space-y-4 rounded-lg bg-white p-8 shadow">
@@ -66,6 +88,24 @@ export function LoginForm({ onLogin }: Props) {
         <Button type="submit" className="w-full" disabled={submitting}>
           {submitting ? "登入中…" : "登入"}
         </Button>
+        {config?.m365Enabled && config.m365TenantId && config.m365ClientId && (
+          <>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              或
+              <div className="h-px flex-1 bg-border" />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={handleM365Login}
+              disabled={m365Submitting}
+            >
+              {m365Submitting ? "登入中…" : "使用 Microsoft 帳號登入"}
+            </Button>
+          </>
+        )}
         {SHOW_DEMO_HINT && (
           <p className="text-xs text-muted-foreground">
             示範帳號：admin / applicant / dept_manager / finance / ceo(或 gm)@demo-a.test 或 @demo-b.test，

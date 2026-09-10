@@ -125,7 +125,7 @@ function AuthenticatedApp({ auth, logout }: { auth: AuthState; logout: () => voi
 }
 
 function App() {
-  const { auth, login, logout } = useAuth();
+  const { auth, login, loginWithM365, logout } = useAuth();
   // /platform 是服務供應商管理租戶用的入口，跟一般租戶使用者的登入完全分開一套畫面/token，
   // 用路徑判斷走哪一邊就好，不需要為了這一個分岔另外拉一個路由函式庫進來。
   const isPlatformRoute = window.location.pathname.startsWith("/platform");
@@ -137,7 +137,7 @@ function App() {
       ) : auth ? (
         <AuthenticatedApp auth={auth} logout={logout} />
       ) : (
-        <LoginForm onLogin={login} />
+        <LoginForm onLogin={login} onLoginWithM365={loginWithM365} />
       )}
     </QueryClientProvider>
   );
