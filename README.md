@@ -471,6 +471,13 @@ bash server/scripts/restore.sh 20260101-030000
   sudo systemctl reload nginx`**)。沒有這個設定的話，後端看到的來源永遠是 nginx 自己
   (127.0.0.1)，會變成全公司共用同一個額度，隨便幾個人手滑多打幾次密碼，其他人也會一起
   被鎖住、看起來像整個登入功能忽然壞掉。
+- **平台管理者後台顯示「上次備份：失敗」，訊息是 `Permission denied` 寫入
+  `/srv/backups/expense-platform/db-....sql.gz`**：自動備份是應用程式自己內建的排程
+  (以 API 服務帳號執行)，但 `/srv/backups/expense-platform` 這個目錄如果曾經被人用
+  `sudo`/root 手動執行 `backup.sh` 建立過(常見於手動測試備份)，擁有者會變成 root，
+  服務帳號自己排程時就無法寫入。用 `sudo chown -R <服務帳號>:<服務帳號>
+  /srv/backups/expense-platform` 校正一次即可；`backup.sh` 已經修正成之後只要偵測到
+  自己是用 root 執行，就會自動把這個目錄的擁有者校正回服務帳號，正常不會再發生。
 
 ---
 
