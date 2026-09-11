@@ -355,6 +355,13 @@ bash server/scripts/update.sh
 每次更新只要跑這一行。
 
 幾個行為說明：
+- 這支腳本**可以用 root 執行**(常見於直接用 root SSH 進主機的 VPS)：`git pull`、備份、
+  最後重啟服務這幾步用 root 執行天生就有權限；但 Node.js/npm 是照 `install.sh` 的慣例
+  用 nvm 裝在服務執行帳號自己的家目錄底下，root 自己的 shell 環境找不到那條 PATH，
+  所以腳本會自動把會呼叫 `npm`/`npx` 的那幾步改成用服務執行帳號的身分執行，不用自己
+  額外處理。但**這支腳本不接受帶分支參數**(`bash update.sh <branch>` 的 `<branch>`
+  會被忽略)，它只會對目前簽出的分支做 `git pull`；要切分支請自己先 `git checkout <branch>`
+  再執行這支腳本。
 - 如果偵測到主機上有還沒 commit 的本機修改(常見情況是 `package.json` 之類的檔案不知道
   被什麼動過)，腳本會直接中止、印出 `git status` 給你看，**不會**自動幫你捨棄或 stash——
   那可能是有意義的修改，要不要丟由你自己確認後手動處理(`git restore` 或 `git stash`)，
@@ -478,6 +485,19 @@ bash server/scripts/restore.sh 20260101-030000
   服務帳號自己排程時就無法寫入。用 `sudo chown -R <服務帳號>:<服務帳號>
   /srv/backups/expense-platform` 校正一次即可；`backup.sh` 已經修正成之後只要偵測到
   自己是用 root 執行，就會自動把這個目錄的擁有者校正回服務帳號，正常不會再發生。
+- **`git pull`/`git fetch` 失敗，出現 `error: insufficient permission for adding an
+  object to repository database .git/objects`、`fatal: failed to write object`、
+  `fatal: unpack-objects failed`**：這批新的 git object 檔案是**用 root 身分**跑
+  `git pull`/`git fetch`/`git checkout` 時寫進去的(常見情境：直接用 root SSH 進主機，
+  在 `update.sh` 之外手動下 git 指令)，擁有者變成 root，之後服務帳號自己再 `git pull`
+  時沒有權限覆寫/新增這些檔案。root 執行 git 本身沒問題(root 有讀寫任何檔案的權限，
+  能正常抓到最新內容)，問題出在**這樣做了之後，換回服務帳號執行 git 就會卡住**。
+  修法：`sudo chown -R <服務帳號>:<服務帳號> /srv/apps/expense-platform`(整個專案目錄
+  都校正一次，不是只有 `.git/`)，之後**一律用服務帳號執行 git 指令**，不要再用 root
+  直接下 `git pull`/`git fetch`/`git checkout`——`update.sh` 本身已經處理好用 root
+  執行時 npm 相關步驟要切換身分的問題(見上面「更新」章節)，但 git 那幾步刻意維持用
+  誰執行就用誰的身分，不會、也不應該擅自幫你切換，所以手動下 git 指令時還是要自己
+  留意身分，最保險的做法是固定用服務帳號登入操作、避免用 root。
 
 ---
 
