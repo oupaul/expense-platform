@@ -9,6 +9,10 @@ import { prewarmMsalInstance } from "@/lib/msal";
 interface Props {
   onLogin: (companySlug: string, email: string, password: string) => Promise<unknown>;
   onLoginWithM365: (companySlug: string, tenantId: string, clientId: string) => Promise<unknown>;
+  // 應用程式剛啟動、正在檢查「這次是不是從 Microsoft 登入導回來的」——這段期間要先擋掉
+  // 正常的登入表單，不然使用者會誤以為畫面卡住或登入失敗(見 useAuth.ts 的說明)。
+  m365Processing: boolean;
+  m365Error: string | null;
 }
 
 // 預填示範帳號、底下的提示文字都只在本機開發(`npm run dev`)有意義——那是唯一能保證
@@ -17,7 +21,7 @@ interface Props {
 // 寫死在這裡的話兩種情境都會秀出來，正式站沒有這些帳號會讓人以為是空白畫面壞掉。
 const SHOW_DEMO_HINT = import.meta.env.DEV;
 
-export function LoginForm({ onLogin, onLoginWithM365 }: Props) {
+export function LoginForm({ onLogin, onLoginWithM365, m365Processing, m365Error }: Props) {
   const [companySlug, setCompanySlug] = useState(SHOW_DEMO_HINT ? "demo-a" : "");
   const [email, setEmail] = useState(SHOW_DEMO_HINT ? "applicant@demo-a.test" : "");
   const [password, setPassword] = useState("");
@@ -36,10 +40,8 @@ export function LoginForm({ onLogin, onLoginWithM365 }: Props) {
   const { data: config } = useCompanyConfig(debouncedSlug);
   const heading = config?.branding.name ? `${config.branding.name} 登入` : "費用申請系統登入";
 
-  // 一知道這家公司的 M365 設定就先把 MSAL 建好、initialize 完(見 src/lib/msal.ts 的
-  // 說明)，不要等使用者點下按鈕才臨時建立——那樣 initialize() 這個非同步操作會插在
-  // 點擊事件跟真正呼叫 loginPopup() 之間，讓瀏覽器把彈出視窗誤判成非使用者主動開啟
-  // 而靜默擋掉。
+  // 一知道這家公司的 M365 設定就先把 MSAL 建好、initialize 完，不用等使用者點下按鈕
+  // 才臨時建立、多等一次 initialize() 的非同步時間(見 src/lib/msal.ts 的說明)。
   useEffect(() => {
     if (config?.m365Enabled && config.m365TenantId && config.m365ClientId) {
       prewarmMsalInstance(config.m365TenantId, config.m365ClientId);
@@ -59,6 +61,9 @@ export function LoginForm({ onLogin, onLoginWithM365 }: Props) {
     }
   };
 
+  // 點下去之後 onLoginWithM365 內部會呼叫 loginRedirect()，整個分頁會直接導去
+  // Microsoft，這個 function 剩下的部分(包括這裡的 catch/finally)理論上不會真的
+  // 執行到——只有在導轉「還沒發生」就出錯的情況(例如 MSAL 設定本身有問題)才會走到這裡。
   const handleM365Login = async () => {
     if (!config?.m365TenantId || !config.m365ClientId) return;
     setError(null);
@@ -66,18 +71,24 @@ export function LoginForm({ onLogin, onLoginWithM365 }: Props) {
     try {
       await onLoginWithM365(companySlug, config.m365TenantId, config.m365ClientId);
     } catch (err) {
-      const errorCode = err instanceof Error && "errorCode" in err ? (err as Error & { errorCode: string }).errorCode : undefined;
-      if (errorCode === "user_cancelled") {
-        // 使用者自己關掉登入彈跳視窗(取消登入)，屬於正常操作，不用顯示錯誤訊息嚇到使用者。
-      } else if (errorCode === "popup_window_error") {
-        setError("瀏覽器封鎖了登入彈跳視窗，請允許此網站開啟彈跳視窗後再試一次");
-      } else {
-        setError(err instanceof ApiError ? err.message : "Microsoft 登入失敗，請重新嘗試(詳細錯誤已記錄在瀏覽器主控台)");
-      }
+      setError(err instanceof ApiError ? err.message : "Microsoft 登入失敗，請重新嘗試(詳細錯誤已記錄在瀏覽器主控台)");
     } finally {
       setM365Submitting(false);
     }
   };
+
+  // 應用程式剛啟動、正在檢查是不是從 Microsoft 登入導回來——這段期間先不要渲染正常的
+  // 登入表單(尤其不要讓使用者以為卡住而亂點什麼)，登入完成後 auth 會有值，App.tsx
+  // 會自動切到已登入的畫面，這個過渡畫面自然就消失了。
+  if (m365Processing) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100">
+        <p className="text-sm text-muted-foreground">Microsoft 登入處理中…</p>
+      </div>
+    );
+  }
+
+  const displayError = error ?? m365Error;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100">
@@ -95,7 +106,7 @@ export function LoginForm({ onLogin, onLoginWithM365 }: Props) {
           <Label>密碼</Label>
           <Input value={password} onChange={(e) => setPassword(e.target.value)} type="password" />
         </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {displayError && <p className="text-sm text-destructive">{displayError}</p>}
         <Button type="submit" className="w-full" disabled={submitting}>
           {submitting ? "登入中…" : "登入"}
         </Button>

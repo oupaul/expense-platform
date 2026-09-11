@@ -47,9 +47,13 @@ id，之後憑證附件就能直接上傳(不用再等「送出」才補傳)。�
   產生 Client Secret——這個系統完全沒有存放、加密任何 M365 相關的密鑰，Tenant ID/Client ID
   也不是密鑰，前端登入頁本來就要用它們組 Microsoft 登入網址，`GET /:slug/config` 這個公開端點
   會直接回傳。
-- 前端用 `@azure/msal-browser` 的 `loginPopup`(不是 `loginRedirect`)——這個系統沒有前端路由，
-  用彈跳視窗可以把整個登入流程留在同一個 `await` 裡處理完，不用處理「回來之後怎麼知道剛才是
-  哪家公司在登入」的狀態保存問題。
+- 前端用 `@azure/msal-browser` 的 `loginRedirect`(不是 `loginPopup`)——原本用彈跳視窗
+  (`loginPopup`)實測在某些透過 Cloudflare Tunnel 之類代理對外的部署環境下，主視窗會偵測不到
+  彈跳視窗登入完成，卡在「登入中」動不了(Microsoft 那邊登入其實成功，只是主視窗收不到結果)，
+  換成 `loginRedirect` 直接整頁導去 Microsoft、登入完再導回同一個分頁，完全不需要任何跨視窗
+  溝通，從根本上避開這類環境相依的問題。代價是要自己處理「回來之後怎麼知道剛才是哪家公司在
+  登入」——登入前先把 companySlug/tenantId/clientId 存進 `sessionStorage`，應用程式重新啟動時
+  檢查這把旗標、呼叫 `handleRedirectPromise()` 接手完成登入(見 `useAuth.ts`)。
 - 後端收到前端拿到的 ID token 後，用 `jwks-rsa` 抓 Microsoft 的公開金鑰驗證簽章，並嚴格檢查
   `issuer`(必須是這家公司設定的 tenantId)、`audience`(必須是這家公司設定的 clientId)——
   Microsoft 的簽章金鑰是全域共用、不分租戶的，這兩個檢查才是真正擋住「A 公司的人拿自己 Azure
