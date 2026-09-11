@@ -25,7 +25,13 @@ export function ExchangeRateManager({ auth }: { auth: AuthState }) {
     queryFn: () => apiFetch<ExchangeRateItem[]>(basePath, { token: auth.token }),
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+  // 匯率是 company-config 的一部分(申請表單多幣別換算直接讀那份設定)，只 invalidate
+  // 後台自己這份清單的話，填寫表單的人要等 5 分鐘 staleTime 過期或重新整理頁面才會
+  // 看到新改的匯率。
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey });
+    queryClient.invalidateQueries({ queryKey: ["company-config", auth.user.companySlug] });
+  };
 
   const saveMutation = useMutation({
     mutationFn: ({ currency, rateToTWD }: { currency: string; rateToTWD: number }) =>

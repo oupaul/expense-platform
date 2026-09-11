@@ -33,7 +33,13 @@ export function OptionManager({ auth, resourcePath, title, showRequiresProjectCo
     queryFn: () => apiFetch<OptionItem[]>(basePath, { token: auth.token }),
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+  // 部門/費用項目/費用性質都是 company-config 的一部分(申請表單的下拉選單直接讀
+  // 那份設定)，只 invalidate 後台自己這份清單的話，填寫表單的人要等 5 分鐘
+  // staleTime 過期或重新整理頁面才會看到新增/停用的項目。
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey });
+    queryClient.invalidateQueries({ queryKey: ["company-config", auth.user.companySlug] });
+  };
   const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : "操作失敗");
 
   const createMutation = useMutation({
