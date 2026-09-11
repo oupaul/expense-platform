@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import { useCompanyConfig } from "@/hooks/useCompanyConfig";
+import { prewarmMsalInstance } from "@/lib/msal";
 
 interface Props {
   onLogin: (companySlug: string, email: string, password: string) => Promise<unknown>;
@@ -35,6 +36,16 @@ export function LoginForm({ onLogin, onLoginWithM365 }: Props) {
   const { data: config } = useCompanyConfig(debouncedSlug);
   const heading = config?.branding.name ? `${config.branding.name} 登入` : "費用申請系統登入";
 
+  // 一知道這家公司的 M365 設定就先把 MSAL 建好、initialize 完(見 src/lib/msal.ts 的
+  // 說明)，不要等使用者點下按鈕才臨時建立——那樣 initialize() 這個非同步操作會插在
+  // 點擊事件跟真正呼叫 loginPopup() 之間，讓瀏覽器把彈出視窗誤判成非使用者主動開啟
+  // 而靜默擋掉。
+  useEffect(() => {
+    if (config?.m365Enabled && config.m365TenantId && config.m365ClientId) {
+      prewarmMsalInstance(config.m365TenantId, config.m365ClientId);
+    }
+  }, [config?.m365Enabled, config?.m365TenantId, config?.m365ClientId]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -61,7 +72,7 @@ export function LoginForm({ onLogin, onLoginWithM365 }: Props) {
       } else if (errorCode === "popup_window_error") {
         setError("瀏覽器封鎖了登入彈跳視窗，請允許此網站開啟彈跳視窗後再試一次");
       } else {
-        setError(err instanceof ApiError ? err.message : "Microsoft 登入失敗，請重新嘗試");
+        setError(err instanceof ApiError ? err.message : "Microsoft 登入失敗，請重新嘗試(詳細錯誤已記錄在瀏覽器主控台)");
       }
     } finally {
       setM365Submitting(false);
