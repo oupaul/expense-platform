@@ -24,7 +24,14 @@ export function ApprovalStageManager({ auth }: { auth: AuthState }) {
     queryFn: () => apiFetch<ApprovalStageItem[]>(basePath, { token: auth.token }),
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+  // 簽核關卡是 company-config 的一部分(申請表單的「簽核欄」直接讀那份設定)，只
+  // invalidate 後台自己這份清單的話，填寫表單的人要等 5 分鐘 staleTime 過期或重新整理
+  // 頁面才會看到新增/調整過的關卡——同樣的問題、同樣的修法，先前在自訂欄位那幾個
+  // 後台管理元件已經修過一輪，這裡當初漏掉。
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey });
+    queryClient.invalidateQueries({ queryKey: ["company-config", auth.user.companySlug] });
+  };
   const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : "操作失敗");
 
   const createMutation = useMutation({
