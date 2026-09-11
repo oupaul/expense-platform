@@ -39,6 +39,13 @@ export function useAuth() {
   // 前面如果還插一段 initialize() 的 await，會讓瀏覽器判斷不出這是使用者主動觸發的
   // 彈出視窗而靜默擋掉(見 src/lib/msal.ts 的說明)。
   const loginWithM365 = useCallback(async (companySlug: string, tenantId: string, clientId: string) => {
+    // MSAL 用這把 sessionStorage 旗標記錄「現在是不是正在跑一次登入互動」，正常情況下
+    // loginPopup() 不管成功或失敗都會自動清掉。但實測過如果上一次互動卡住沒有正常收尾
+    // (例如彈跳視窗沒有被正確偵測/關閉)，這把旗標會一直卡著，讓之後每次新嘗試都馬上被
+    // MSAL 自己擋下來(interaction_in_progress)，即使那次真正的互動早就不存在了、使用者
+    // 也不知道要去手動清瀏覽器儲存空間。每次要開始新的登入嘗試前先清掉它，讓使用者
+    // 永遠有辦法重新嘗試，不會被一次卡住的舊互動永久卡住。
+    sessionStorage.removeItem("msal.interaction.status");
     try {
       const msalInstance = await getMsalInstance(tenantId, clientId);
       const loginResult = await msalInstance.loginPopup({ scopes: ["openid", "profile", "email"] });
