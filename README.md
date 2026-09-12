@@ -73,16 +73,71 @@ id，之後憑證附件就能直接上傳(不用再等「送出」才補傳)。�
 
 - **站內通知**：畫面右上角的鈴鐺圖示，未讀數字紅點、點開是最近 30 筆清單，點一筆會標記已讀
   並自動跳到相關分頁(待簽核通知跳「待簽核」，核准/駁回/退回通知跳「我的申請」)。
-- **Email**：寄給同一批收件人，純文字信件。SMTP 帳號**全平台共用一組**(不是每個租戶各自
-  設定)，在平台管理頁面(`/platform` → 「通知」分頁)設定，密碼用跟 `JWT_SECRET` 同源衍生的
-  金鑰加密存進資料庫，API 不會把明碼密碼回傳給前端；設定完可以直接在畫面上「測試連線」，
-  選填收件信箱的話還會真的寄一封測試信。**沒有啟用/沒有設定完整的話 email 會靜默略過**
-  (只在伺服器 log 印一次警告)，站內通知照常運作，不會因為公司還沒準備好郵件伺服器就整個
-  功能掛掉。如果用的是公司自己架設的內部郵件伺服器，測試連線出現
-  `unable to get local issuer certificate` / `self-signed certificate` 之類的錯誤，
-  是因為那台伺服器的憑證是自我簽署或內部 CA 簽發的，不在 Node.js 內建的信任清單裡——
-  勾選「信任自我簽署/內部憑證」即可(**只建議用在公司內部、可信任的郵件主機**，Gmail/
-  Outlook 等公開服務不需要也不應該勾選)。
+- **Email**：寄給同一批收件人，純文字信件。寄信設定**全平台共用一組**(不是每個租戶各自
+  設定)，在平台管理頁面(`/platform` → 「通知」分頁)設定，支援兩種寄信方式(互斥，二選一)：
+
+  1. **SMTP 帳號密碼**：密碼用跟 `JWT_SECRET` 同源衍生的金鑰加密存進資料庫，API 不會把
+     明碼密碼回傳給前端。如果用的是公司自己架設的內部郵件伺服器，測試連線出現
+     `unable to get local issuer certificate` / `self-signed certificate` 之類的錯誤，
+     是因為那台伺服器的憑證是自我簽署或內部 CA 簽發的，不在 Node.js 內建的信任清單裡——
+     勾選「信任自我簽署/內部憑證」即可(**只建議用在公司內部、可信任的郵件主機**，Gmail/
+     Outlook 等公開服務不需要也不應該勾選)。
+  2. **Microsoft 365(OAuth2 應用程式權限)**：不用任何一個真人帳號的密碼，改用 Azure AD
+     應用程式的 client secret 透過 client credentials flow 換 access token，呼叫
+     Microsoft Graph 的 `sendMail` API 用指定信箱寄信。跟上面「Microsoft 365 單一登入」
+     用的是完全不同的 OAuth2 流程(那個是每次登入都要真人互動的 authorization code flow，
+     這個是應用程式自己背景取得授權，不需要任何人互動)——設定步驟見下方「M365 應用程式
+     權限設定教學」。client secret 一樣用跟 `JWT_SECRET` 同源衍生的金鑰加密存進資料庫。
+
+  兩種方式都可以直接在畫面上「測試連線」，選填收件信箱的話還會真的寄一封測試信。
+  **沒有啟用/沒有設定完整的話 email 會靜默略過**(只在伺服器 log 印一次警告)，站內通知
+  照常運作，不會因為公司還沒準備好郵件伺服器就整個功能掛掉。
+
+#### M365 應用程式權限設定教學
+
+這是給「通知」分頁選擇「Microsoft 365(OAuth2 應用程式權限)」時要準備的 Azure AD 設定，
+跟「單一登入」那邊各租戶自己設定的 App 註冊是兩支完全獨立的 App，不要搞混或共用同一支。
+需要租戶的 **Global Admin(或至少是能同意應用程式權限的管理員角色)** 才能完成第 4 步。
+
+1. **建立 App 註冊**：登入 [Azure Portal](https://portal.azure.com) → 搜尋「Microsoft Entra
+   ID」→ 左側「App registrations」→「New registration」。名稱隨意(例如
+   `expense-platform-mailer`)，「Supported account types」選預設的「單一租戶」即可，
+   Redirect URI 這裡不需要填(這支 App 完全不會有使用者登入互動)。
+2. **建立 Client Secret**：進入剛建立的 App → 左側「Certificates & secrets」→
+   「New client secret」，填描述、選有效期限(建議 12～24 個月，到期前要記得換新，換新後
+   要回到本系統「通知」分頁重新貼上)。**建立後立刻複製「Value」欄位的值**——這個值只會
+   顯示這一次，離開頁面後就再也看不到，只能重新建一組新的。
+3. **加上 Mail.Send 應用程式權限**：左側「API permissions」→「Add a permission」→
+   「Microsoft Graph」→ 選 **「Application permissions」**(不是「Delegated permissions」，
+   兩者差異見下方安全性說明)→ 搜尋並勾選 `Mail.Send` → 「Add permissions」。
+4. **管理員同意**：回到「API permissions」頁面，點「Grant admin consent for <租戶名稱>」，
+   確認後 `Mail.Send` 那一列狀態要變成綠色勾勾「Granted for <租戶名稱>」。**這一步一定要有
+   Global Admin 權限的帳號才能點，一般使用者點了會失敗**——沒有這一步，之後換 token 會失敗
+   或換到的 token 沒有實際寄信權限。
+5. **(強烈建議)用 Exchange Online PowerShell 限縮寄信範圍**：預設情況下，`Mail.Send`
+   應用程式權限一旦同意，這支 App 可以代表**這個租戶裡的任何一個信箱**寄信，不是只能用你
+   指定的那個寄件信箱——這是應用程式權限的本質(不像 SMTP 帳密只能用那一個帳號)，
+   client secret 一旦外流，風險範圍是整個組織的所有信箱，不只一個帳號。建議用
+   `New-ApplicationAccessPolicy` 把這支 App 限制成只能對指定的寄件信箱生效：
+   ```powershell
+   Connect-ExchangeOnline
+   New-ApplicationAccessPolicy -AppId "<Client ID>" `
+     -PolicyScopeGroupId "notify@your-company.com" `
+     -AccessRight RestrictAccess `
+     -Description "只允許 expense-platform 寄信用的 App 存取這個信箱"
+   ```
+   套用後如果這支 App 嘗試對其他信箱寄信會直接被 Graph 拒絕，就算 client secret 外流，
+   影響範圍也只限於這一個信箱。
+6. **記下三個值，貼到本系統「通知」分頁**：
+   - **Tenant ID**：App 註冊「Overview」頁的「Directory (tenant) ID」
+   - **Client ID**：同一頁的「Application (client) ID」
+   - **Client Secret**：第 2 步複製的「Value」
+   - **寄件人信箱**：填一個這個租戶裡真實存在的信箱(建議用共用信箱/shared mailbox，
+     不要用真人的個人信箱，避免那個人離職或改密碼時牽連到系統寄信功能——注意共用信箱
+     本身不需要、也不應該再另外設密碼，`Mail.Send` 應用程式權限本來就不透過信箱密碼)
+7. 選擇「Microsoft 365(OAuth2 應用程式權限)」、填入上面四個值、儲存後按「測試連線」，
+   看到「連線成功」代表 token 換取成功(第 4 步的管理員同意生效了)；填收件信箱的話還會
+   真的寄一封測試信，能進一步驗證第 5 步的存取範圍設定跟寄件人信箱本身都正確。
 
 會收到通知的對象：
 

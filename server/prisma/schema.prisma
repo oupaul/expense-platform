@@ -51,6 +51,10 @@ model BackupConfig {
 // 明碼密碼回傳給前端，只回「有沒有設定」。
 model NotificationConfig {
   id          String  @id @default("singleton")
+  // "smtp"(帳號密碼) 或 "m365_oauth2"(M365 應用程式權限，見下方欄位)，兩種方式互斥，
+  // smtpEnabled 是不分方式的總開關(沿用舊欄位名稱，避免額外一次遷移；語意上現在代表
+  // 「email 通知功能本身有沒有啟用」，不是「smtp 這個方式有沒有啟用」)。
+  authMethod  String  @default("smtp")
   smtpEnabled Boolean @default(false)
   smtpHost    String?
   smtpPort    Int     @default(587)
@@ -62,6 +66,15 @@ model NotificationConfig {
   // 裡沒有那個簽發者，TLS 交握會直接失敗(unable to get local issuer certificate)。
   // 預設關閉(維持憑證驗證)，只有明確知道對方是可信任的內部主機才勾選開啟。
   smtpAllowSelfSigned Boolean @default(false)
+
+  // M365 OAuth2(應用程式權限/client credentials)寄信——不透過 SMTP 帳密，改用 Azure AD
+  // 應用程式的 client secret 換 access token，呼叫 Microsoft Graph 的 sendMail API，
+  // 用 m365FromAddress 這個信箱的身分寄出。需要租戶 IT 管理員在 Azure AD 幫這支應用程式
+  // 的 Mail.Send 權限做過「代表整個組織同意」，見 README 設定教學。
+  m365TenantId        String?
+  m365ClientId        String?
+  m365ClientSecretEnc String? @db.Text
+  m365FromAddress     String?
 
   updatedAt DateTime @updatedAt
 }
