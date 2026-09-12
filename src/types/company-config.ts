@@ -51,6 +51,11 @@ export interface CompanyFormConfig {
   appNumberDateFormat: "none" | "roc" | "yyyyMMdd" | "yyMMdd";
   appNumberResetPeriod: "daily" | "monthly" | "yearly" | "never";
   appNumberSeqDigits: number;
+  // Tenant/Client ID 不是密鑰，登入頁要用這兩個值組 Microsoft 登入網址(MSAL.js)，
+  // 沒有啟用或還沒設定完整時 tenantId/clientId 可能是 undefined。
+  m365Enabled: boolean;
+  m365TenantId?: string;
+  m365ClientId?: string;
   departments: SelectOption[];
   expenseNatures: SelectOption[];
   expenseCategories: ExpenseCategoryOption[];

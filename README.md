@@ -14,6 +14,7 @@
 - 後台管理：部門／費用項目／費用性質／簽核關卡／匯率／使用者帳號
 - 修改密碼(自助)、後台重設密碼(管理員)
 - 通知：申請單送出/簽核/核准/駁回/退回時，站內鈴鐺清單 + email 提醒相關人員(見下方「通知」章節)
+- Microsoft 365 單一登入(選填，每家租戶各自設定，見下方「Microsoft 365 單一登入」章節)
 
 ### 「查閱全公司報表」權限
 
@@ -35,6 +36,35 @@ id，之後憑證附件就能直接上傳(不用再等「送出」才補傳)。�
 
 草稿是使用者自己還沒寫完的內容，`scope=all`(全部申請)、報表的「簽核狀態分佈」都刻意排除掉，
 查看單筆草稿明細也只有申請人本人或 admin 能看，不套用「同公司都能看」這個既有的寬鬆權限。
+
+### Microsoft 365 單一登入
+
+每家租戶各自在自己的 Azure AD 建立一個 App 註冊、各自的 Tenant ID/Client ID，在「後台管理 →
+公司設定」裡開啟並填入即可，不是平台層級的全域設定。
+
+- **App 註冊類型一定要選「單頁應用程式(SPA)」**，Redirect URI 填後台設定頁上顯示的那個網址
+  (就是這個系統本身的網址)。SPA 型態的 App 註冊搭配 Authorization Code + PKCE 不需要、也不會
+  產生 Client Secret——這個系統完全沒有存放、加密任何 M365 相關的密鑰，Tenant ID/Client ID
+  也不是密鑰，前端登入頁本來就要用它們組 Microsoft 登入網址，`GET /:slug/config` 這個公開端點
+  會直接回傳。
+- 前端用 `@azure/msal-browser` 的 `loginRedirect`(不是 `loginPopup`)——原本用彈跳視窗
+  (`loginPopup`)實測在某些透過 Cloudflare Tunnel 之類代理對外的部署環境下，主視窗會偵測不到
+  彈跳視窗登入完成，卡在「登入中」動不了(Microsoft 那邊登入其實成功，只是主視窗收不到結果)，
+  換成 `loginRedirect` 直接整頁導去 Microsoft、登入完再導回同一個分頁，完全不需要任何跨視窗
+  溝通，從根本上避開這類環境相依的問題。代價是要自己處理「回來之後怎麼知道剛才是哪家公司在
+  登入」——登入前先把 companySlug/tenantId/clientId 存進 `sessionStorage`，應用程式重新啟動時
+  檢查這把旗標、呼叫 `handleRedirectPromise()` 接手完成登入(見 `useAuth.ts`)。
+- 後端收到前端拿到的 ID token 後，用 `jwks-rsa` 抓 Microsoft 的公開金鑰驗證簽章，並嚴格檢查
+  `issuer`(必須是這家公司設定的 tenantId)、`audience`(必須是這家公司設定的 clientId)——
+  Microsoft 的簽章金鑰是全域共用、不分租戶的，這兩個檢查才是真正擋住「A 公司的人拿自己 Azure
+  租戶核發的合法 token 冒充成 B 公司使用者」的安全邊界，不能只驗證「這是不是一個合法的
+  Microsoft token」就放行。
+- **不會自動建立新帳號**：SSO 登入時如果 email 在這家公司底下找不到對應的 `User`，會直接被拒絕
+  (`此 Microsoft 帳號尚未對應到系統帳號，請聯繫貴公司管理員建立帳號`)，管理員要先在「使用者
+  帳號」用同一個 email 手動建好帳號，才能用 Microsoft 帳號登入——避免任何在客戶 Azure AD 裡
+  有帳號的人都能自動拿到這個系統的存取權限。
+- 啟用 SSO 不會關閉原本的密碼登入，兩種方式並存；某個使用者的 Microsoft 帳號如果暫時無法使用，
+  一樣可以用密碼登入。
 
 ### 通知
 
