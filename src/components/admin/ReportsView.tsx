@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line } from "recharts";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { apiFetch, apiFetchBlobUrl, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { ReportSummary } from "@/types/admin";
 
@@ -59,22 +60,54 @@ function HorizontalBarList({
   );
 }
 
+// from/to 兩個篩選欄位在畫面上留空時，代表「用後端預設的近 12 個月」——/summary
+// 跟 /export 這兩支 API 都要照同一個篩選條件查，共用同一個組 query string 的邏輯，
+// 不然以後改了篩選欄位的行為，兩處各自維護容易漏改到其中一邊。
+function buildDateRangeQuery(from: string, to: string): string {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
 export function ReportsView({ auth }: { auth: AuthState }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["reports", "summary", auth.user.companyId, from, to],
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (from) params.set("from", from);
-      if (to) params.set("to", to);
-      const qs = params.toString();
-      return apiFetch<ReportSummary>(`/companies/${auth.user.companyId}/reports/summary${qs ? `?${qs}` : ""}`, {
+    queryFn: () =>
+      apiFetch<ReportSummary>(`/companies/${auth.user.companyId}/reports/summary${buildDateRangeQuery(from, to)}`, {
         token: auth.token,
-      });
-    },
+      }),
   });
+
+  // 匯出的 Excel 檔案名稱要跟畫面上實際顯示的區間一致——from/to 留空時後端會套用
+  // 「近 12 個月」的預設值，這個實際解析出來的日期只有 /summary 的回應(data.range)
+  // 裡才查得到，不能只看使用者自己填的(可能是空的)from/to 這兩個欄位。
+  const handleExport = async () => {
+    setExportError(null);
+    setExporting(true);
+    try {
+      const url = await apiFetchBlobUrl(
+        `/companies/${auth.user.companyId}/reports/export${buildDateRangeQuery(from, to)}`,
+        auth.token
+      );
+      const rangeFrom = data?.range.from.slice(0, 10) ?? from;
+      const rangeTo = data?.range.to.slice(0, 10) ?? to;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `expense-report-${rangeFrom}_${rangeTo}.xlsx`;
+      a.click();
+    } catch (err) {
+      setExportError(err instanceof ApiError ? err.message : "匯出失敗，請稍後再試一次");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-8">
@@ -89,7 +122,13 @@ export function ReportsView({ auth }: { auth: AuthState }) {
           <Label>迄</Label>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
-        <p className="text-xs text-muted-foreground">留空預設顯示近 12 個月。「支出」統計只計入已核准的申請單。</p>
+        <Button type="button" variant="outline" onClick={handleExport} disabled={exporting}>
+          {exporting ? "匯出中…" : "匯出 Excel"}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          留空預設顯示近 12 個月。「支出」統計只計入已核准的申請單，匯出的 Excel 逐筆明細也是同一個範圍。
+        </p>
+        {exportError && <p className="w-full text-sm text-destructive">{exportError}</p>}
       </div>
 
       {isLoading && <div className="p-8 text-center text-muted-foreground">載入中…</div>}

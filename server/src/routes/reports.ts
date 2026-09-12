@@ -1,7 +1,17 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
+import ExcelJS from "exceljs";
 import { prisma } from "../db.js";
 import { requireAuth, requireSameCompany, requireReportAccess } from "../middleware/auth.js";
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: "草稿",
+  pending: "審核中",
+  approved: "已核准",
+  rejected: "已駁回",
+  returned: "已退回",
+  cancelled: "已取消",
+};
 
 // mergeParams 讓 :companyId 在執行期確實會被合併進 req.params，但 TypeScript 只會依路由
 // 自己的路徑字面量推斷型別，推不出來自父層掛載路徑的參數，所以要手動標型別。
@@ -107,4 +117,85 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
     byStatus,
     monthlyTrend,
   });
+});
+
+// GET /api/companies/:companyId/reports/export?from=&to=
+// 匯出報表篩選範圍內「逐筆費用明細」的 Excel 檔案，跟上面 /summary 的彙總數字不同——
+// 這支是給財務對帳/匯入其他系統用的原始資料，一列一筆費用項目(不是一列一張申請單，
+// 一張申請單可能有好幾筆不同類別的費用，攤開成多列才對得到帳)。跟部門/類別支出總覽
+// 用同一個「已核准」定義：審核中/被駁回/被退回的金額還不是真的花出去的錢，匯出給財務
+// 對帳的話混進來沒有意義。
+reportsRouter.get("/export", async (req: CompanyScoped, res) => {
+  const parsed = querySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const companyId = req.params.companyId;
+  const to = parsed.data.to ?? new Date();
+  const from = parsed.data.from ?? new Date(new Date(to).setMonth(to.getMonth() - 11));
+
+  const items = await prisma.expenseItem.findMany({
+    where: {
+      application: {
+        companyId,
+        status: "approved",
+        applicationDate: { gte: from, lte: to },
+      },
+    },
+    include: {
+      category: { select: { name: true } },
+      application: {
+        select: {
+          applicationNumber: true,
+          applicationDate: true,
+          status: true,
+          applicant: { select: { name: true } },
+          department: { select: { name: true } },
+          expenseNature: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: [{ application: { applicationDate: "asc" } }, { id: "asc" }],
+  });
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("費用明細");
+  sheet.columns = [
+    { header: "申請單號", key: "applicationNumber", width: 18 },
+    { header: "申請人", key: "applicant", width: 12 },
+    { header: "部門", key: "department", width: 12 },
+    { header: "費用性質", key: "expenseNature", width: 10 },
+    { header: "費用項目類別", key: "category", width: 14 },
+    { header: "說明", key: "description", width: 30 },
+    { header: "幣別", key: "currency", width: 8 },
+    { header: "金額", key: "amount", width: 12 },
+    { header: "換算TWD", key: "amountInTWD", width: 12 },
+    { header: "申請日期", key: "applicationDate", width: 12 },
+    { header: "狀態", key: "status", width: 10 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+
+  for (const item of items) {
+    sheet.addRow({
+      applicationNumber: item.application.applicationNumber ?? "-",
+      applicant: item.application.applicant.name,
+      department: item.application.department?.name ?? "-",
+      expenseNature: item.application.expenseNature?.name ?? "-",
+      category: item.category.name,
+      description: item.description ?? "",
+      currency: item.currency,
+      amount: Number(item.amount),
+      amountInTWD: Number(item.amountInTWD),
+      // 已核准的申請單一定有 applicationDate(跟上面 /summary 的斷言同理)，這裡直接
+      // 用非 null 斷言，理由一樣。
+      applicationDate: item.application.applicationDate!.toISOString().slice(0, 10),
+      status: STATUS_LABEL[item.application.status] ?? item.application.status,
+    });
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const filename = `expense-report-${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}.xlsx`;
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(Buffer.from(buffer));
 });
