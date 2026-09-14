@@ -16,6 +16,7 @@ import { reportsRouter } from "./routes/reports.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { platformAuthRouter } from "./routes/platformAuth.js";
 import { platformRouter } from "./routes/platform.js";
+import { customFieldsRouter, expenseCategoryCustomFieldsRouter } from "./routes/customFields.js";
 import { rescheduleBackupJob } from "./services/backupScheduler.js";
 
 const app = express();
@@ -60,7 +61,12 @@ app.use(
   "/api/companies/:companyId/expense-categories",
   createOptionRouter(() => prisma.expenseCategory, { requiresProjectCode: z.boolean().optional() })
 );
+app.use(
+  "/api/companies/:companyId/expense-categories/:categoryId/custom-fields",
+  expenseCategoryCustomFieldsRouter
+);
 app.use("/api/companies/:companyId/expense-natures", createOptionRouter(() => prisma.expenseNature));
+app.use("/api/companies/:companyId/custom-fields", customFieldsRouter);
 app.use("/api/companies/:companyId/approval-stages", approvalStagesRouter);
 app.use("/api/companies/:companyId/applications", applicationsRouter);
 app.use("/api/companies/:companyId/exchange-rates", exchangeRatesRouter);

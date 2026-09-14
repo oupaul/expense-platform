@@ -32,6 +32,7 @@ export interface ApplicationItemDetail {
   amount: string;
   amountInTWD: string;
   category: { name: string };
+  customFieldValues: Record<string, string> | null;
 }
 
 export interface AttachmentMeta {

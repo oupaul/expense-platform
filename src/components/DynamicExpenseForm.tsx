@@ -24,6 +24,7 @@ interface ExpenseRowState {
   currency: string;
   projectCode?: string;
   invoiceDate?: string;
+  customFieldValues?: Record<string, string>;
 }
 
 function emptyRow(): ExpenseRowState {
@@ -71,6 +72,10 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const queryClient = useQueryClient();
   const basePath = `/companies/${auth.user.companyId}/applications`;
   const { data: config, isLoading, isError } = useCompanyConfig(auth.user.companySlug);
+  // 桌面費用明細表格欄位一多會水平捲動，拿這個 ref 是為了「新增一列」時能把捲軸
+  // 歸位到最左邊(見下面 Button 的 onClick)——Table 元件把 ref 轉發到 <table> 本身，
+  // 它的直接父層就是負責捲動的 overflow-auto 容器。
+  const desktopTableRef = useRef<HTMLTableElement>(null);
   const [rows, setRows] = useState<ExpenseRowState[]>([emptyRow()]);
   const [departmentId, setDepartmentId] = useState("");
   const [expenseNatureId, setExpenseNatureId] = useState("");
@@ -158,6 +163,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
             currency: item.currency,
             projectCode: item.projectCode ?? undefined,
             invoiceDate: item.invoiceDate ? item.invoiceDate.slice(0, 10) : undefined,
+            customFieldValues: item.customFieldValues ?? undefined,
           }))
         : [emptyRow()]
     );
@@ -184,6 +190,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       invoiceDate: r.invoiceDate || undefined,
       currency: r.currency,
       amount: r.amount ? Number(r.amount) : undefined,
+      customFieldValues: r.customFieldValues,
     })),
   });
 
@@ -307,6 +314,40 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   // 設定了必填，都要顯示——不然選到必填類別時使用者根本看不到欄位可以填。
   const showProjectCodeColumn = optionalFields.projectCode || expenseCategories.some((c) => c.requiresProjectCode);
 
+  // 方案 A：桌面表格固定顯示「有被至少一個費用項目類別關聯到」的自訂欄位欄位，
+  // 跟 showProjectCodeColumn 同一套邏輯——不然類別關聯了卻沒地方能填。沒被任何類別
+  // 關聯到的自訂欄位(還在後台設定、尚未關聯)不佔欄位，避免整張表格塞滿用不到的空欄。
+  const visibleCustomFields = config.customFields.filter((field) =>
+    expenseCategories.some((c) => c.customFields.some((l) => l.id === field.id))
+  );
+  // 這一列選的類別關聯到哪些自訂欄位——沒選類別、或選的類別沒關聯任何欄位就回傳空陣列。
+  const getRowCustomFieldLinks = (row: ExpenseRowState) =>
+    expenseCategories.find((c) => c.id === row.categoryId)?.customFields ?? [];
+  const getRowCustomFieldLink = (row: ExpenseRowState, fieldId: string) =>
+    getRowCustomFieldLinks(row).find((l) => l.id === fieldId);
+  // 跟後端 validateApplicationInput 同一套規則：必填欄位不能空白；select 型欄位如果
+  // 有填值，值必須是目前有效的選項之一(公司可能事後停用/改掉某個選項)。回傳 null
+  // 代表這一列的自訂欄位都合法，否則回傳可以直接顯示給使用者看的錯誤訊息。
+  const getRowCustomFieldError = (row: ExpenseRowState): string | null => {
+    const category = expenseCategories.find((c) => c.id === row.categoryId);
+    if (!category) return null;
+    for (const link of category.customFields) {
+      const field = config.customFields.find((f) => f.id === link.id);
+      if (!field) continue;
+      const value = (row.customFieldValues?.[field.id] ?? "").trim();
+      if (link.required && !value) return `費用項目「${category.name}」需要填寫「${field.name}」`;
+      if (value && field.fieldType === "select" && !field.options.some((o) => o.label === value)) {
+        return `費用項目「${category.name}」的「${field.name}」選項不正確，請重新選擇`;
+      }
+    }
+    return null;
+  };
+  const updateRowCustomField = (index: number, fieldId: string, value: string) => {
+    setRows((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, customFieldValues: { ...row.customFieldValues, [fieldId]: value } } : row))
+    );
+  };
+
   // 只算「有選費用項目」的列，跟送出/列印時的過濾條件（categoryId 必須有值）保持一致，
   // 不然使用者會看到畫面上的合計金額跟實際送出/列印出來的金額對不起來。
   const validRows = rows.filter((r) => r.categoryId && Number(r.amount) > 0);
@@ -326,6 +367,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       currency: r.currency,
       amount: r.amount,
       amountInTWD: amountInTWD(r) === null ? null : Math.round(amountInTWD(r)! * 100) / 100,
+      // 這一列自己的類別沒關聯到的欄位、或關聯到但沒填的欄位都印成 "-"，跟方案 A
+      // 桌面表格的顯示規則一致，PrintableApplicationForm 不用再自己判斷關聯關係。
+      customFieldValues: Object.fromEntries(
+        visibleCustomFields.map((f) => [f.id, (getRowCustomFieldLink(r, f.id) ? r.customFieldValues?.[f.id] : undefined) || "-"])
+      ),
     }));
   const departmentName = departments.find((d) => d.id === departmentId)?.name ?? "";
   const expenseNatureName = expenseNatures.find((n) => n.id === expenseNatureId)?.name ?? "";
@@ -333,6 +379,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const handleSubmit = async () => {
     if (validRows.some(isProjectCodeInvalid)) {
       setSubmitState({ status: "error", message: "有費用明細的專案編號未填寫或不是 10 碼，請檢查標紅的欄位" });
+      return;
+    }
+    const customFieldError = validRows.map(getRowCustomFieldError).find((e) => e);
+    if (customFieldError) {
+      setSubmitState({ status: "error", message: customFieldError });
       return;
     }
     if (optionalFields.payeeInfo && !payeeName.trim()) {
@@ -370,6 +421,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               invoiceDate: r.invoiceDate || undefined,
               currency: r.currency,
               amount: Number(r.amount),
+              customFieldValues: r.customFieldValues,
             })),
         },
       });
@@ -422,6 +474,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
           expenseNatureName={expenseNatureName}
           optionalFields={{ ...optionalFields, projectCode: showProjectCodeColumn }}
           multiCurrencyEnabled={multiCurrencyEnabled}
+          customFields={visibleCustomFields.map((f) => ({ id: f.id, name: f.name }))}
           rows={printRows}
           payeeName={payeeName}
           requestedPaymentDate={requestedPaymentDate}
@@ -535,30 +588,38 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   瀏覽器會被迫把「專案編號」這種標題擠成一字一行的直排、輸入框窄到
                   看不到內容，改用下面的卡片式直向版面，同一份資料兩套渲染，邏輯
                   (updateRow/驗證)完全共用，只有排版不同。 */}
+              {/* 欄位一多(專案編號、自訂欄位)，表格會被撐得比容器寬——這裡不讓瀏覽器把每一欄
+                  都往內壓縮(壓到說明欄位幾乎看不到字)，改成每一欄保留一個看得清楚的最小寬度，
+                  寬度不夠時交給 Table 元件本來就有的 overflow-auto 外層出現水平捲軸。「費用
+                  項目」欄位額外用 sticky 固定在最左邊(跟 Excel 凍結窗格同樣的概念)，水平捲動
+                  時這一欄一直看得到，不用捲到最左邊才知道這一列選的是哪個費用項目。 */}
               <div className="hidden md:block">
-                <Table>
+                <Table ref={desktopTableRef}>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>費用項目</TableHead>
-                      {showProjectCodeColumn && <TableHead>專案編號</TableHead>}
-                      <TableHead>說明</TableHead>
+                      <TableHead className="sticky left-0 z-10 min-w-[9rem] border-r bg-white">費用項目</TableHead>
+                      {showProjectCodeColumn && <TableHead className="min-w-[8rem]">專案編號</TableHead>}
+                      {visibleCustomFields.map((field) => (
+                        <TableHead key={field.id} className="min-w-[9rem]">{field.name}</TableHead>
+                      ))}
+                      <TableHead className="min-w-[14rem]">說明</TableHead>
                       {optionalFields.invoiceDate && (
-                        <TableHead className="whitespace-nowrap">
+                        <TableHead className="min-w-[10rem] whitespace-nowrap">
                           發票日期
                           <br />
                           <span className="text-xs font-normal">(個人代墊可保持空白)</span>
                         </TableHead>
                       )}
-                      {multiCurrencyEnabled && <TableHead>幣別</TableHead>}
-                      <TableHead>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
-                      {multiCurrencyEnabled && <TableHead>換算 TWD</TableHead>}
+                      {multiCurrencyEnabled && <TableHead className="min-w-[6rem]">幣別</TableHead>}
+                      <TableHead className="min-w-[7rem]">金額 {multiCurrencyEnabled ? "" : "(NTD)"}</TableHead>
+                      {multiCurrencyEnabled && <TableHead className="min-w-[7rem]">換算 TWD</TableHead>}
                       <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rows.map((row, i) => (
                       <TableRow key={i}>
-                        <TableCell>
+                        <TableCell className="sticky left-0 z-10 border-r bg-white">
                           <Select value={row.categoryId} onValueChange={(v) => updateRow(i, { categoryId: v })}>
                             <SelectTrigger><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
                             <SelectContent>
@@ -579,6 +640,40 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                             />
                           </TableCell>
                         )}
+                        {visibleCustomFields.map((field) => {
+                          const link = getRowCustomFieldLink(row, field.id);
+                          return (
+                            <TableCell key={field.id}>
+                              {!link ? (
+                                <span className="text-muted-foreground">-</span>
+                              ) : field.fieldType === "select" ? (
+                                <Select
+                                  value={row.customFieldValues?.[field.id] ?? ""}
+                                  onValueChange={(v) => updateRowCustomField(i, field.id, v)}
+                                >
+                                  <SelectTrigger
+                                    className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                  >
+                                    <SelectValue placeholder="請選擇" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {field.options.map((o) => (
+                                      <SelectItem key={o.id} value={o.label}>{o.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input
+                                  type={field.fieldType === "date" ? "date" : "text"}
+                                  value={row.customFieldValues?.[field.id] ?? ""}
+                                  onChange={(e) => updateRowCustomField(i, field.id, e.target.value)}
+                                  placeholder={link.required ? `${field.name}(必填)` : field.name}
+                                  className={link.required && !(row.customFieldValues?.[field.id] ?? "").trim() ? "border-destructive" : undefined}
+                                />
+                              )}
+                            </TableCell>
+                          );
+                        })}
                         <TableCell>
                           <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
                         </TableCell>
@@ -683,6 +778,45 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                         />
                       </div>
                     )}
+                    {/* 手機卡片比桌面表格聰明一點：只顯示這一列的類別真的有關聯到的欄位，
+                        不像桌面表格要保持欄位對齊而放一堆用不到的 "-" 佔位。 */}
+                    {getRowCustomFieldLinks(row).map((link) => {
+                      const field = config.customFields.find((f) => f.id === link.id);
+                      if (!field) return null;
+                      return (
+                        <div key={field.id}>
+                          <Label>
+                            {field.name}
+                            {link.required && <span className="text-destructive"> *必填</span>}
+                          </Label>
+                          {field.fieldType === "select" ? (
+                            <Select
+                              value={row.customFieldValues?.[field.id] ?? ""}
+                              onValueChange={(v) => updateRowCustomField(i, field.id, v)}
+                            >
+                              <SelectTrigger
+                                className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                              >
+                                <SelectValue placeholder="請選擇" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {field.options.map((o) => (
+                                  <SelectItem key={o.id} value={o.label}>{o.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              type={field.fieldType === "date" ? "date" : "text"}
+                              value={row.customFieldValues?.[field.id] ?? ""}
+                              onChange={(e) => updateRowCustomField(i, field.id, e.target.value)}
+                              placeholder={field.name}
+                              className={link.required && !(row.customFieldValues?.[field.id] ?? "").trim() ? "border-destructive" : undefined}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                     <div>
                       <Label>說明</Label>
                       <Input value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} placeholder="說明" />
@@ -744,7 +878,19 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                 ))}
               </div>
 
-              <Button className="mt-2" onClick={() => setRows((prev) => [...prev, emptyRow()])}>
+              <Button
+                className="mt-2"
+                onClick={() => {
+                  setRows((prev) => [...prev, emptyRow()]);
+                  // 新增一列後把桌面表格的水平捲軸歸位到最左邊——不然使用者剛才如果為了
+                  // 看後面的欄位(自訂欄位/金額)往右滑過，新增出來的空白列(從「費用項目」
+                  // 這個最左邊的欄位開始填)會被捲到看不到，還要自己往回滑才找得到。
+                  // behavior:"smooth" 在分頁被瀏覽器判定為背景/非可視狀態時(常見於自動化
+                  // 測試環境、或視窗切走)動畫不會真的執行(scrollLeft 完全不會變)，改用
+                  // "auto" 直接跳到底，才能確保這個歸位動作在任何情況下都真的會生效。
+                  desktopTableRef.current?.parentElement?.scrollTo({ left: 0, behavior: "auto" });
+                }}
+              >
                 ＋ 新增一列
               </Button>
             </div>
@@ -841,6 +987,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                   total <= 0 ||
                   (multiCurrencyEnabled && rows.some((r) => r.categoryId && Number(r.amount) > 0 && amountInTWD(r) === null)) ||
                   validRows.some(isProjectCodeInvalid) ||
+                  validRows.some((r) => !!getRowCustomFieldError(r)) ||
                   (optionalFields.payeeInfo && !payeeName.trim()) ||
                   !applicantSignature
                 }

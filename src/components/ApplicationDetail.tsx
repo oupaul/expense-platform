@@ -44,6 +44,15 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
     requestedPaymentDate: !!data.requestedPaymentDate,
   };
   const printMultiCurrencyEnabled = data.items.some((i) => i.currency !== "TWD");
+  // 只列出「這張單至少有一筆明細真的填了值」的自訂欄位——跟 DynamicExpenseForm 那邊
+  // 「類別有沒有關聯到」的判斷基準不同，因為這裡是已經送出的歷史資料，要照實呈現當初
+  // 填了什麼，不受公司後續改了哪些類別關聯設定影響。用 config.customFields 解析
+  // customFieldId → 名稱，欄位如果事後被停用，名稱還是能從這裡查到(active 篩選只
+  // 影響「後台新建/選擇」這種操作情境，不影響既有資料的顯示)。
+  const usedCustomFieldIds = new Set(
+    data.items.flatMap((item) => Object.entries(item.customFieldValues ?? {}).filter(([, v]) => v).map(([id]) => id))
+  );
+  const detailCustomFields = (config?.customFields ?? []).filter((f) => usedCustomFieldIds.has(f.id));
   const printRows = data.items.map((item) => ({
     categoryName: item.category.name,
     description: item.description ?? "",
@@ -55,6 +64,9 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
     currency: item.currency,
     amount: item.amount,
     amountInTWD: Number(item.amountInTWD),
+    customFieldValues: Object.fromEntries(
+      detailCustomFields.map((f) => [f.id, item.customFieldValues?.[f.id] || "-"])
+    ),
   }));
   const signatureBoxes = [
     { id: "applicant", label: "申請人", signature: data.applicantSignature },
@@ -119,6 +131,9 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
             <TableRow>
               <TableHead>費用項目</TableHead>
               <TableHead>說明</TableHead>
+              {detailCustomFields.map((field) => (
+                <TableHead key={field.id}>{field.name}</TableHead>
+              ))}
               <TableHead>幣別</TableHead>
               <TableHead>金額</TableHead>
               <TableHead>換算 TWD</TableHead>
@@ -129,6 +144,9 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
               <TableRow key={item.id}>
                 <TableCell>{item.category.name}</TableCell>
                 <TableCell>{item.description ?? "-"}</TableCell>
+                {detailCustomFields.map((field) => (
+                  <TableCell key={field.id}>{item.customFieldValues?.[field.id] || "-"}</TableCell>
+                ))}
                 <TableCell>{item.currency}</TableCell>
                 <TableCell>{formatAmount(item.amount)}</TableCell>
                 <TableCell>{formatAmount(Math.round(Number(item.amountInTWD)))}</TableCell>
@@ -196,6 +214,7 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
               expenseNatureName={data.expenseNature?.name ?? ""}
               optionalFields={printOptionalFields}
               multiCurrencyEnabled={printMultiCurrencyEnabled}
+              customFields={detailCustomFields.map((f) => ({ id: f.id, name: f.name }))}
               rows={printRows}
               payeeName={data.payeeName ?? undefined}
               requestedPaymentDate={

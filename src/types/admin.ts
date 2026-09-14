@@ -7,6 +7,28 @@ export interface OptionItem {
   requiresProjectCode?: boolean;
 }
 
+export interface CustomFieldItem {
+  id: string;
+  companyId: string;
+  name: string;
+  fieldType: "text" | "date" | "select";
+  sortOrder: number;
+  active: boolean;
+}
+
+export interface CustomFieldOptionItem {
+  id: string;
+  customFieldId: string;
+  label: string;
+  sortOrder: number;
+  active: boolean;
+}
+
+export interface CategoryCustomFieldLinkItem {
+  customFieldId: string;
+  required: boolean;
+}
+
 export interface ApprovalStageItem {
   id: string;
   companyId: string;
