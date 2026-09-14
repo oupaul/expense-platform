@@ -45,6 +45,7 @@ export interface BackupConfig {
 }
 
 export interface NotificationConfig {
+  authMethod: "smtp" | "m365_oauth2";
   smtpEnabled: boolean;
   smtpHost: string;
   smtpPort: number;
@@ -53,6 +54,10 @@ export interface NotificationConfig {
   smtpFrom: string;
   smtpAllowSelfSigned: boolean;
   hasSmtpPass: boolean;
+  m365TenantId: string;
+  m365ClientId: string;
+  m365FromAddress: string;
+  hasM365ClientSecret: boolean;
 }
 
 export interface BackupFileItem {

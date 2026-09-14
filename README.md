@@ -14,6 +14,7 @@
 - 後台管理：部門／費用項目／費用性質／簽核關卡／匯率／使用者帳號
 - 修改密碼(自助)、後台重設密碼(管理員)
 - 通知：申請單送出/簽核/核准/駁回/退回時，站內鈴鐺清單 + email 提醒相關人員(見下方「通知」章節)
+- Microsoft 365 單一登入(選填，每家租戶各自設定，見下方「Microsoft 365 單一登入」章節)
 
 ### 「查閱全公司報表」權限
 
@@ -36,6 +37,35 @@ id，之後憑證附件就能直接上傳(不用再等「送出」才補傳)。�
 草稿是使用者自己還沒寫完的內容，`scope=all`(全部申請)、報表的「簽核狀態分佈」都刻意排除掉，
 查看單筆草稿明細也只有申請人本人或 admin 能看，不套用「同公司都能看」這個既有的寬鬆權限。
 
+### Microsoft 365 單一登入
+
+每家租戶各自在自己的 Azure AD 建立一個 App 註冊、各自的 Tenant ID/Client ID，在「後台管理 →
+公司設定」裡開啟並填入即可，不是平台層級的全域設定。
+
+- **App 註冊類型一定要選「單頁應用程式(SPA)」**，Redirect URI 填後台設定頁上顯示的那個網址
+  (就是這個系統本身的網址)。SPA 型態的 App 註冊搭配 Authorization Code + PKCE 不需要、也不會
+  產生 Client Secret——這個系統完全沒有存放、加密任何 M365 相關的密鑰，Tenant ID/Client ID
+  也不是密鑰，前端登入頁本來就要用它們組 Microsoft 登入網址，`GET /:slug/config` 這個公開端點
+  會直接回傳。
+- 前端用 `@azure/msal-browser` 的 `loginRedirect`(不是 `loginPopup`)——原本用彈跳視窗
+  (`loginPopup`)實測在某些透過 Cloudflare Tunnel 之類代理對外的部署環境下，主視窗會偵測不到
+  彈跳視窗登入完成，卡在「登入中」動不了(Microsoft 那邊登入其實成功，只是主視窗收不到結果)，
+  換成 `loginRedirect` 直接整頁導去 Microsoft、登入完再導回同一個分頁，完全不需要任何跨視窗
+  溝通，從根本上避開這類環境相依的問題。代價是要自己處理「回來之後怎麼知道剛才是哪家公司在
+  登入」——登入前先把 companySlug/tenantId/clientId 存進 `sessionStorage`，應用程式重新啟動時
+  檢查這把旗標、呼叫 `handleRedirectPromise()` 接手完成登入(見 `useAuth.ts`)。
+- 後端收到前端拿到的 ID token 後，用 `jwks-rsa` 抓 Microsoft 的公開金鑰驗證簽章，並嚴格檢查
+  `issuer`(必須是這家公司設定的 tenantId)、`audience`(必須是這家公司設定的 clientId)——
+  Microsoft 的簽章金鑰是全域共用、不分租戶的，這兩個檢查才是真正擋住「A 公司的人拿自己 Azure
+  租戶核發的合法 token 冒充成 B 公司使用者」的安全邊界，不能只驗證「這是不是一個合法的
+  Microsoft token」就放行。
+- **不會自動建立新帳號**：SSO 登入時如果 email 在這家公司底下找不到對應的 `User`，會直接被拒絕
+  (`此 Microsoft 帳號尚未對應到系統帳號，請聯繫貴公司管理員建立帳號`)，管理員要先在「使用者
+  帳號」用同一個 email 手動建好帳號，才能用 Microsoft 帳號登入——避免任何在客戶 Azure AD 裡
+  有帳號的人都能自動拿到這個系統的存取權限。
+- 啟用 SSO 不會關閉原本的密碼登入，兩種方式並存；某個使用者的 Microsoft 帳號如果暫時無法使用，
+  一樣可以用密碼登入。
+
 ### 通知
 
 申請單生命週期(送出/每一關核准/駁回/退回)會同時觸發兩種通知，各自獨立、其中一個失敗不影響
@@ -43,16 +73,71 @@ id，之後憑證附件就能直接上傳(不用再等「送出」才補傳)。�
 
 - **站內通知**：畫面右上角的鈴鐺圖示，未讀數字紅點、點開是最近 30 筆清單，點一筆會標記已讀
   並自動跳到相關分頁(待簽核通知跳「待簽核」，核准/駁回/退回通知跳「我的申請」)。
-- **Email**：寄給同一批收件人，純文字信件。SMTP 帳號**全平台共用一組**(不是每個租戶各自
-  設定)，在平台管理頁面(`/platform` → 「通知」分頁)設定，密碼用跟 `JWT_SECRET` 同源衍生的
-  金鑰加密存進資料庫，API 不會把明碼密碼回傳給前端；設定完可以直接在畫面上「測試連線」，
-  選填收件信箱的話還會真的寄一封測試信。**沒有啟用/沒有設定完整的話 email 會靜默略過**
-  (只在伺服器 log 印一次警告)，站內通知照常運作，不會因為公司還沒準備好郵件伺服器就整個
-  功能掛掉。如果用的是公司自己架設的內部郵件伺服器，測試連線出現
-  `unable to get local issuer certificate` / `self-signed certificate` 之類的錯誤，
-  是因為那台伺服器的憑證是自我簽署或內部 CA 簽發的，不在 Node.js 內建的信任清單裡——
-  勾選「信任自我簽署/內部憑證」即可(**只建議用在公司內部、可信任的郵件主機**，Gmail/
-  Outlook 等公開服務不需要也不應該勾選)。
+- **Email**：寄給同一批收件人，純文字信件。寄信設定**全平台共用一組**(不是每個租戶各自
+  設定)，在平台管理頁面(`/platform` → 「通知」分頁)設定，支援兩種寄信方式(互斥，二選一)：
+
+  1. **SMTP 帳號密碼**：密碼用跟 `JWT_SECRET` 同源衍生的金鑰加密存進資料庫，API 不會把
+     明碼密碼回傳給前端。如果用的是公司自己架設的內部郵件伺服器，測試連線出現
+     `unable to get local issuer certificate` / `self-signed certificate` 之類的錯誤，
+     是因為那台伺服器的憑證是自我簽署或內部 CA 簽發的，不在 Node.js 內建的信任清單裡——
+     勾選「信任自我簽署/內部憑證」即可(**只建議用在公司內部、可信任的郵件主機**，Gmail/
+     Outlook 等公開服務不需要也不應該勾選)。
+  2. **Microsoft 365(OAuth2 應用程式權限)**：不用任何一個真人帳號的密碼，改用 Azure AD
+     應用程式的 client secret 透過 client credentials flow 換 access token，呼叫
+     Microsoft Graph 的 `sendMail` API 用指定信箱寄信。跟上面「Microsoft 365 單一登入」
+     用的是完全不同的 OAuth2 流程(那個是每次登入都要真人互動的 authorization code flow，
+     這個是應用程式自己背景取得授權，不需要任何人互動)——設定步驟見下方「M365 應用程式
+     權限設定教學」。client secret 一樣用跟 `JWT_SECRET` 同源衍生的金鑰加密存進資料庫。
+
+  兩種方式都可以直接在畫面上「測試連線」，選填收件信箱的話還會真的寄一封測試信。
+  **沒有啟用/沒有設定完整的話 email 會靜默略過**(只在伺服器 log 印一次警告)，站內通知
+  照常運作，不會因為公司還沒準備好郵件伺服器就整個功能掛掉。
+
+#### M365 應用程式權限設定教學
+
+這是給「通知」分頁選擇「Microsoft 365(OAuth2 應用程式權限)」時要準備的 Azure AD 設定，
+跟「單一登入」那邊各租戶自己設定的 App 註冊是兩支完全獨立的 App，不要搞混或共用同一支。
+需要租戶的 **Global Admin(或至少是能同意應用程式權限的管理員角色)** 才能完成第 4 步。
+
+1. **建立 App 註冊**：登入 [Azure Portal](https://portal.azure.com) → 搜尋「Microsoft Entra
+   ID」→ 左側「App registrations」→「New registration」。名稱隨意(例如
+   `expense-platform-mailer`)，「Supported account types」選預設的「單一租戶」即可，
+   Redirect URI 這裡不需要填(這支 App 完全不會有使用者登入互動)。
+2. **建立 Client Secret**：進入剛建立的 App → 左側「Certificates & secrets」→
+   「New client secret」，填描述、選有效期限(建議 12～24 個月，到期前要記得換新，換新後
+   要回到本系統「通知」分頁重新貼上)。**建立後立刻複製「Value」欄位的值**——這個值只會
+   顯示這一次，離開頁面後就再也看不到，只能重新建一組新的。
+3. **加上 Mail.Send 應用程式權限**：左側「API permissions」→「Add a permission」→
+   「Microsoft Graph」→ 選 **「Application permissions」**(不是「Delegated permissions」，
+   兩者差異見下方安全性說明)→ 搜尋並勾選 `Mail.Send` → 「Add permissions」。
+4. **管理員同意**：回到「API permissions」頁面，點「Grant admin consent for <租戶名稱>」，
+   確認後 `Mail.Send` 那一列狀態要變成綠色勾勾「Granted for <租戶名稱>」。**這一步一定要有
+   Global Admin 權限的帳號才能點，一般使用者點了會失敗**——沒有這一步，之後換 token 會失敗
+   或換到的 token 沒有實際寄信權限。
+5. **(強烈建議)用 Exchange Online PowerShell 限縮寄信範圍**：預設情況下，`Mail.Send`
+   應用程式權限一旦同意，這支 App 可以代表**這個租戶裡的任何一個信箱**寄信，不是只能用你
+   指定的那個寄件信箱——這是應用程式權限的本質(不像 SMTP 帳密只能用那一個帳號)，
+   client secret 一旦外流，風險範圍是整個組織的所有信箱，不只一個帳號。建議用
+   `New-ApplicationAccessPolicy` 把這支 App 限制成只能對指定的寄件信箱生效：
+   ```powershell
+   Connect-ExchangeOnline
+   New-ApplicationAccessPolicy -AppId "<Client ID>" `
+     -PolicyScopeGroupId "notify@your-company.com" `
+     -AccessRight RestrictAccess `
+     -Description "只允許 expense-platform 寄信用的 App 存取這個信箱"
+   ```
+   套用後如果這支 App 嘗試對其他信箱寄信會直接被 Graph 拒絕，就算 client secret 外流，
+   影響範圍也只限於這一個信箱。
+6. **記下三個值，貼到本系統「通知」分頁**：
+   - **Tenant ID**：App 註冊「Overview」頁的「Directory (tenant) ID」
+   - **Client ID**：同一頁的「Application (client) ID」
+   - **Client Secret**：第 2 步複製的「Value」
+   - **寄件人信箱**：填一個這個租戶裡真實存在的信箱(建議用共用信箱/shared mailbox，
+     不要用真人的個人信箱，避免那個人離職或改密碼時牽連到系統寄信功能——注意共用信箱
+     本身不需要、也不應該再另外設密碼，`Mail.Send` 應用程式權限本來就不透過信箱密碼)
+7. 選擇「Microsoft 365(OAuth2 應用程式權限)」、填入上面四個值、儲存後按「測試連線」，
+   看到「連線成功」代表 token 換取成功(第 4 步的管理員同意生效了)；填收件信箱的話還會
+   真的寄一封測試信，能進一步驗證第 5 步的存取範圍設定跟寄件人信箱本身都正確。
 
 會收到通知的對象：
 
@@ -355,6 +440,13 @@ bash server/scripts/update.sh
 每次更新只要跑這一行。
 
 幾個行為說明：
+- 這支腳本**可以用 root 執行**(常見於直接用 root SSH 進主機的 VPS)：`git pull`、備份、
+  最後重啟服務這幾步用 root 執行天生就有權限；但 Node.js/npm 是照 `install.sh` 的慣例
+  用 nvm 裝在服務執行帳號自己的家目錄底下，root 自己的 shell 環境找不到那條 PATH，
+  所以腳本會自動把會呼叫 `npm`/`npx` 的那幾步改成用服務執行帳號的身分執行，不用自己
+  額外處理。但**這支腳本不接受帶分支參數**(`bash update.sh <branch>` 的 `<branch>`
+  會被忽略)，它只會對目前簽出的分支做 `git pull`；要切分支請自己先 `git checkout <branch>`
+  再執行這支腳本。
 - 如果偵測到主機上有還沒 commit 的本機修改(常見情況是 `package.json` 之類的檔案不知道
   被什麼動過)，腳本會直接中止、印出 `git status` 給你看，**不會**自動幫你捨棄或 stash——
   那可能是有意義的修改，要不要丟由你自己確認後手動處理(`git restore` 或 `git stash`)，
@@ -478,6 +570,19 @@ bash server/scripts/restore.sh 20260101-030000
   服務帳號自己排程時就無法寫入。用 `sudo chown -R <服務帳號>:<服務帳號>
   /srv/backups/expense-platform` 校正一次即可；`backup.sh` 已經修正成之後只要偵測到
   自己是用 root 執行，就會自動把這個目錄的擁有者校正回服務帳號，正常不會再發生。
+- **`git pull`/`git fetch` 失敗，出現 `error: insufficient permission for adding an
+  object to repository database .git/objects`、`fatal: failed to write object`、
+  `fatal: unpack-objects failed`**：這批新的 git object 檔案是**用 root 身分**跑
+  `git pull`/`git fetch`/`git checkout` 時寫進去的(常見情境：直接用 root SSH 進主機，
+  在 `update.sh` 之外手動下 git 指令)，擁有者變成 root，之後服務帳號自己再 `git pull`
+  時沒有權限覆寫/新增這些檔案。root 執行 git 本身沒問題(root 有讀寫任何檔案的權限，
+  能正常抓到最新內容)，問題出在**這樣做了之後，換回服務帳號執行 git 就會卡住**。
+  修法：`sudo chown -R <服務帳號>:<服務帳號> /srv/apps/expense-platform`(整個專案目錄
+  都校正一次，不是只有 `.git/`)，之後**一律用服務帳號執行 git 指令**，不要再用 root
+  直接下 `git pull`/`git fetch`/`git checkout`——`update.sh` 本身已經處理好用 root
+  執行時 npm 相關步驟要切換身分的問題(見上面「更新」章節)，但 git 那幾步刻意維持用
+  誰執行就用誰的身分，不會、也不應該擅自幫你切換，所以手動下 git 指令時還是要自己
+  留意身分，最保險的做法是固定用服務帳號登入操作、避免用 root。
 
 ---
 

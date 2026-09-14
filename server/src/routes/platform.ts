@@ -8,7 +8,7 @@ import { hashPassword } from "../auth/password.js";
 import { encryptSecret } from "../auth/nasSecret.js";
 import { requireAuth, requirePlatformAdmin } from "../middleware/auth.js";
 import { BACKUP_DIR, rescheduleBackupJob, runBackupNow, testNasConnection } from "../services/backupScheduler.js";
-import { testSmtpConnection } from "../services/mailer.js";
+import { testSmtpConnection, testM365Connection } from "../services/mailer.js";
 
 // 平台管理者建立/檢視租戶(公司)的路由，只有服務供應商自己能用。
 export const platformRouter = Router();
@@ -342,10 +342,11 @@ platformRouter.get("/backups/:filename", (req, res) => {
 });
 
 // GET /api/platform/notification-config
-// 絕對不回傳解密後的 SMTP 密碼，只回「有沒有設定」，前端沒有理由需要看到密碼本身。
+// 絕對不回傳解密後的密碼/client secret，只回「有沒有設定」，前端沒有理由需要看到明碼。
 platformRouter.get("/notification-config", async (_req, res) => {
   const config = await prisma.notificationConfig.findUnique({ where: { id: "singleton" } });
   res.json({
+    authMethod: config?.authMethod ?? "smtp",
     smtpEnabled: config?.smtpEnabled ?? false,
     smtpHost: config?.smtpHost ?? "",
     smtpPort: config?.smtpPort ?? 587,
@@ -354,10 +355,15 @@ platformRouter.get("/notification-config", async (_req, res) => {
     smtpFrom: config?.smtpFrom ?? "",
     smtpAllowSelfSigned: config?.smtpAllowSelfSigned ?? false,
     hasSmtpPass: !!config?.smtpPassEnc,
+    m365TenantId: config?.m365TenantId ?? "",
+    m365ClientId: config?.m365ClientId ?? "",
+    m365FromAddress: config?.m365FromAddress ?? "",
+    hasM365ClientSecret: !!config?.m365ClientSecretEnc,
   });
 });
 
 const notificationConfigSchema = z.object({
+  authMethod: z.enum(["smtp", "m365_oauth2"]).optional(),
   smtpEnabled: z.boolean().optional(),
   smtpHost: z.string().optional(),
   smtpPort: z.number().int().min(1).max(65535).optional(),
@@ -367,6 +373,11 @@ const notificationConfigSchema = z.object({
   smtpAllowSelfSigned: z.boolean().optional(),
   // 沒帶這個欄位代表沿用現有密碼(例如只是改寄件人顯示名稱，不想每次都要重打一次密碼)。
   smtpPass: z.string().optional(),
+  m365TenantId: z.string().optional(),
+  m365ClientId: z.string().optional(),
+  m365FromAddress: z.string().optional(),
+  // 同 smtpPass：沒帶代表沿用現有 client secret。
+  m365ClientSecret: z.string().optional(),
 });
 
 // PUT /api/platform/notification-config
@@ -375,23 +386,38 @@ platformRouter.put("/notification-config", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { smtpPass, ...rest } = parsed.data;
+  const { smtpPass, m365ClientSecret, ...rest } = parsed.data;
   await prisma.notificationConfig.upsert({
     where: { id: "singleton" },
-    update: { ...rest, ...(smtpPass ? { smtpPassEnc: encryptSecret(smtpPass) } : {}) },
-    create: { id: "singleton", ...rest, ...(smtpPass ? { smtpPassEnc: encryptSecret(smtpPass) } : {}) },
+    update: {
+      ...rest,
+      ...(smtpPass ? { smtpPassEnc: encryptSecret(smtpPass) } : {}),
+      ...(m365ClientSecret ? { m365ClientSecretEnc: encryptSecret(m365ClientSecret) } : {}),
+    },
+    create: {
+      id: "singleton",
+      ...rest,
+      ...(smtpPass ? { smtpPassEnc: encryptSecret(smtpPass) } : {}),
+      ...(m365ClientSecret ? { m365ClientSecretEnc: encryptSecret(m365ClientSecret) } : {}),
+    },
   });
   res.status(204).end();
 });
 
 const testSmtpSchema = z.object({
-  smtpHost: z.string().min(1),
+  authMethod: z.enum(["smtp", "m365_oauth2"]).default("smtp"),
+  smtpHost: z.string().optional(),
   smtpPort: z.number().int().min(1).max(65535).default(587),
   smtpSecure: z.boolean().default(false),
-  smtpUser: z.string().min(1),
+  smtpUser: z.string().optional(),
   smtpAllowSelfSigned: z.boolean().optional(),
-  // 測試連線時如果沒帶新密碼，就用資料庫裡已經存的那組(方便只改主機/port 之類的設定就重測)。
+  // 測試連線時如果沒帶新密碼/client secret，就用資料庫裡已經存的那組(方便只改
+  // 主機/port/tenantId 之類的設定就重測，不用每次都重打一次機密資料)。
   smtpPass: z.string().optional(),
+  m365TenantId: z.string().optional(),
+  m365ClientId: z.string().optional(),
+  m365FromAddress: z.string().optional(),
+  m365ClientSecret: z.string().optional(),
   testRecipient: z.string().email().optional(),
 });
 
@@ -401,15 +427,32 @@ platformRouter.post("/notification-config/test", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  let passEnc: string | undefined;
-  if (parsed.data.smtpPass) {
-    passEnc = encryptSecret(parsed.data.smtpPass);
-  } else {
-    const existing = await prisma.notificationConfig.findUnique({ where: { id: "singleton" } });
-    passEnc = existing?.smtpPassEnc ?? undefined;
+  const existing = await prisma.notificationConfig.findUnique({ where: { id: "singleton" } });
+
+  if (parsed.data.authMethod === "m365_oauth2") {
+    const clientSecretEnc = parsed.data.m365ClientSecret ? encryptSecret(parsed.data.m365ClientSecret) : existing?.m365ClientSecretEnc;
+    if (!clientSecretEnc) {
+      return res.status(400).json({ error: "尚未設定 M365 Client Secret" });
+    }
+    if (!parsed.data.m365TenantId || !parsed.data.m365ClientId || !parsed.data.m365FromAddress) {
+      return res.status(400).json({ error: "請填寫 Tenant ID、Client ID、寄件人信箱" });
+    }
+    const result = await testM365Connection({
+      tenantId: parsed.data.m365TenantId,
+      clientId: parsed.data.m365ClientId,
+      clientSecretEnc,
+      fromAddress: parsed.data.m365FromAddress,
+      testRecipient: parsed.data.testRecipient,
+    });
+    return res.json(result);
   }
+
+  const passEnc = parsed.data.smtpPass ? encryptSecret(parsed.data.smtpPass) : existing?.smtpPassEnc;
   if (!passEnc) {
     return res.status(400).json({ error: "尚未設定 SMTP 密碼" });
+  }
+  if (!parsed.data.smtpHost || !parsed.data.smtpUser) {
+    return res.status(400).json({ error: "請填寫 SMTP 主機、使用者帳號" });
   }
 
   const result = await testSmtpConnection({

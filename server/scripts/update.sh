@@ -10,15 +10,51 @@ SERVICE_NAME="${SERVICE_NAME:-expense-platform-api}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-# install.sh 把整個 APP_DIR 的擁有者設成安裝時選的服務執行帳號，不是 root。如果這支腳本
-# 是用 `sudo bash update.sh` 在已經是 root 的登入階段執行(常見於直接用 root SSH 進主機的
-# VPS)，git 目前的版本會因為「執行者不是目錄擁有者」直接拒絕動作(dubious ownership 保護，
-# CVE-2022-24765 之後加的)，卡在第一個 git pull 就失敗。這裡的擁有權差異是我們自己的
-# install.sh 刻意造成的、不是別人動過手腳，對這一個路徑加例外是安全的，不用每個人自己
-# 照著錯誤訊息貼指令。
-git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+# 這支腳本常常會被人在已經是 root 的登入階段直接執行(常見於直接用 root SSH 進主機的
+# VPS)。git pull、備份、最後的 systemctl restart 這幾步不管用 root 還是服務帳號執行
+# 都能動作(root 天生就有權限；服務帳號原本也扛得住，只要有對應的 sudoers 設定)，
+# 不用特別處理。但 Node.js/npm 是照 install.sh 的慣例用 nvm 裝在服務執行帳號自己的
+# 家目錄底下，root 自己的 shell 環境沒有那條 PATH，會在 npm ci 那步直接卡住(command
+# not found)——這裡只把「需要呼叫 npm/npx」的那幾步改成用服務帳號的 login shell(帶
+# nvm 相關的 PATH 設定)執行，其餘步驟維持原本用誰執行就用誰的身分，不會動到「用 root
+# 執行整支腳本、靠 root 天生的權限重啟服務」這個現有能動的路徑。
+SERVICE_USER=""
+if [ "$(id -u)" -eq 0 ]; then
+  SERVICE_USER="$(stat -c '%U' "$APP_DIR/server/.env" 2>/dev/null || true)"
+  if [ -z "$SERVICE_USER" ] || [ "$SERVICE_USER" = "root" ]; then
+    echo "偵測到用 root 執行，但抓不到服務執行帳號(找不到 $APP_DIR/server/.env，或擁有者本身就是 root)，無法自動改用該帳號執行 npm 相關步驟，請改成用服務帳號直接執行這支腳本。" >&2
+    exit 1
+  fi
+  log "偵測到用 root 執行，npm/npx 相關步驟會改用服務執行帳號「$SERVICE_USER」執行。"
+fi
+
+# 跟 install.sh 的 run_as_service_user 用同一招：不能只靠 login shell(-l)自動載入
+# profile 檔案就假設 nvm 的 PATH 設定一定生效——nvm 官方安裝腳本寫進哪個檔案
+# (.bashrc/.profile/.bash_profile)因系統而異，不保證 login shell 一定會讀到，
+# 明確手動 source 一次 nvm.sh 才穩。用 "$@" 陣列展開(不是字串拼接)呼叫實際指令，
+# 引號、特殊字元都不用自己處理逃脫，也不會有指令注入風險。沒有用 root 執行的話
+# (SERVICE_USER 是空字串)就直接照原樣執行。
+NVM_LOAD='export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+run_npm_step() {
+  if [ -n "$SERVICE_USER" ]; then
+    # 用分號接、不是 &&：nvm.sh 不存在時 [ -s ... ] 本身回傳非 0，用 && 接的話
+    # 會連帶讓後面真正要跑的指令整個被跳過、卻不會有任何清楚的錯誤訊息，
+    # 跟 install.sh 的 run_as_service_user 一樣用分號，載入 nvm 失敗也還是會
+    # 嘗試執行實際指令(PATH 裡如果本來就有 npm，一樣跑得動)。
+    sudo -u "$SERVICE_USER" -H -- bash -lc "$NVM_LOAD"'; exec "$@"' _ "$@"
+  else
+    "$@"
+  fi
+}
 
 cd "$APP_DIR"
+
+# install.sh 把整個 APP_DIR 的擁有者設成服務執行帳號，不是 root。git pull 這幾步
+# 刻意不像上面 npm 那樣切換成服務帳號執行(root 天生就有權限，不需要切換)，但用 root
+# 直接對著「擁有者是別人」的目錄跑 git，目前版本的 git 會因為 dubious ownership 保護
+# (CVE-2022-24765 之後加的)直接拒絕動作。這裡的擁有權差異是 install.sh 刻意造成的、
+# 不是別人動過手腳，對這一個路徑加例外是安全的。
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 
 # 之前好幾次更新失敗，根源都是這個：主機上有一筆意外的本機修改(例如 package.json
 # 被某個操作動過)卡住 git pull，導致後面全部步驟在「舊程式碼」上執行、卻沒有任何
@@ -51,22 +87,22 @@ log "本次更新內容："
 git log --oneline "$BEFORE_COMMIT..$AFTER_COMMIT"
 
 log "安裝前端依賴..."
-npm ci --ignore-scripts
+run_npm_step npm ci --ignore-scripts
 
 log "安裝後端依賴..."
-npm --prefix server ci --ignore-scripts
+run_npm_step npm --prefix server ci --ignore-scripts
 
 log "產生 Prisma Client..."
-npm --prefix server run prisma:generate
+run_npm_step npm --prefix server run prisma:generate
 
 log "套用資料庫 migration(沒有新 migration 的話這步不會有任何動作)..."
-(cd server && npx prisma migrate deploy)
+(cd server && run_npm_step npx prisma migrate deploy)
 
 log "建置後端..."
-npm --prefix server run build
+run_npm_step npm --prefix server run build
 
 log "建置前端..."
-npm run build
+run_npm_step npm run build
 
 log "重新啟動 $SERVICE_NAME ..."
 sudo systemctl restart "$SERVICE_NAME"
