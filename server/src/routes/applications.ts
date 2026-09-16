@@ -179,15 +179,15 @@ async function validateApplicationInput(companyId: string, data: CreateData) {
   for (const item of data.items) {
     const category = categoryById.get(item.categoryId);
     if (!category) continue;
+
+    // 同一個互斥群組(customField.exclusiveGroup)的欄位，同一筆明細最多只能擇一
+    // 填寫；只要組裡任一個關聯設定勾了必填，就解讀成「這個群組至少要選一個」，
+    // 跟前端 DynamicExpenseForm 的 getRowCustomFieldError 是同一套規則，這裡是
+    // 最後一道防線(前端已經擋過一次)。
+    const groups = new Map<string, { link: (typeof category.customFields)[number]; value: string }[]>();
+
     for (const link of category.customFields) {
       const value = item.customFieldValues?.[link.customFieldId]?.trim() ?? "";
-      if (link.required && !value) {
-        return {
-          ok: false as const,
-          status: 400,
-          error: `費用項目「${category.name}」需要填寫「${link.customField.name}」`,
-        };
-      }
       if (value && link.customField.fieldType === "select") {
         const validLabels = new Set(link.customField.options.map((o) => o.label));
         if (!validLabels.has(value)) {
@@ -197,6 +197,31 @@ async function validateApplicationInput(companyId: string, data: CreateData) {
             error: `費用項目「${category.name}」的「${link.customField.name}」選項不正確，請重新選擇`,
           };
         }
+      }
+      if (link.customField.exclusiveGroup) {
+        const members = groups.get(link.customField.exclusiveGroup) ?? [];
+        members.push({ link, value });
+        groups.set(link.customField.exclusiveGroup, members);
+        continue;
+      }
+      if (link.required && !value) {
+        return {
+          ok: false as const,
+          status: 400,
+          error: `費用項目「${category.name}」需要填寫「${link.customField.name}」`,
+        };
+      }
+    }
+
+    for (const members of groups.values()) {
+      const filled = members.filter((m) => m.value);
+      if (filled.length > 1) {
+        const names = filled.map((m) => m.link.customField.name).join("、");
+        return { ok: false as const, status: 400, error: `費用項目「${category.name}」的「${names}」只能擇一填寫` };
+      }
+      if (filled.length === 0 && members.some((m) => m.link.required)) {
+        const names = members.map((m) => m.link.customField.name).join(" / ");
+        return { ok: false as const, status: 400, error: `費用項目「${category.name}」需要在「${names}」中擇一填寫` };
       }
     }
   }

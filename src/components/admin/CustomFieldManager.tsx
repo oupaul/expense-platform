@@ -156,6 +156,16 @@ export function CustomFieldManager({ auth }: { auth: AuthState }) {
     onError,
   });
 
+  // 互斥群組：同一個群組名稱的欄位，同一列最多只能填一個(例如 CAPEX/OPEX 各自
+  // 獨立存在，但填同一個群組名稱後就變成擇一)。留空(存成 null)代表這個欄位不受
+  // 任何互斥限制，是目前所有欄位預設、既有的行為。
+  const exclusiveGroupMutation = useMutation({
+    mutationFn: ({ id, exclusiveGroup }: { id: string; exclusiveGroup: string }) =>
+      apiFetch(`${basePath}/${id}`, { method: "PUT", token: auth.token, body: { exclusiveGroup } }),
+    onSuccess: invalidate,
+    onError,
+  });
+
   const toggleActiveMutation = useMutation({
     mutationFn: ({ id, active }: { id: string; active: boolean }) =>
       active
@@ -189,6 +199,8 @@ export function CustomFieldManager({ auth }: { auth: AuthState }) {
       <p className="text-xs text-muted-foreground">
         這裡新增的欄位要另外到下面「費用項目關聯欄位」設定，選到哪個費用項目類別時才會顯示/要求填寫。
         拖曳最左邊的把手可以調整順序(申請表單、列印/明細的欄位順序會照這裡的排序顯示)。
+        「互斥群組」留空代表欄位各自獨立；填同一個群組名稱的欄位(例如都填「支出性質」)，
+        同一列最多只能擇一填寫，適合像 CAPEX/OPEX 這種「各自是獨立欄位、但只能選一個」的情境。
       </p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       {data.length === 0 && <p className="text-sm text-muted-foreground">尚未新增任何自訂欄位</p>}
@@ -207,6 +219,17 @@ export function CustomFieldManager({ auth }: { auth: AuthState }) {
                     }}
                   />
                   <span className="text-xs text-muted-foreground">{FIELD_TYPE_LABEL[field.fieldType]}</span>
+                  <Input
+                    className="h-8 max-w-[9rem] text-sm"
+                    defaultValue={field.exclusiveGroup ?? ""}
+                    placeholder="互斥群組(選填)"
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value !== (field.exclusiveGroup ?? "")) {
+                        exclusiveGroupMutation.mutate({ id: field.id, exclusiveGroup: value });
+                      }
+                    }}
+                  />
                   <span className={`text-xs ${field.active ? "text-green-600" : "text-muted-foreground"}`}>
                     {field.active ? "啟用中" : "已停用"}
                   </span>

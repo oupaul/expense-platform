@@ -13,6 +13,7 @@ import { AttachmentUpload, type StagedFile } from "@/components/AttachmentUpload
 import { apiFetch, apiUpload, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationDetail as ApplicationDetailType } from "@/types/application";
+import type { CustomFieldConfig, CategoryCustomFieldLink } from "@/types/company-config";
 import { ALL_CURRENCIES } from "@/lib/currencies";
 import { PrintableApplicationForm } from "@/components/print/PrintableApplicationForm";
 import { formatAmount } from "@/lib/utils";
@@ -331,16 +332,66 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const getRowCustomFieldError = (row: ExpenseRowState): string | null => {
     const category = expenseCategories.find((c) => c.id === row.categoryId);
     if (!category) return null;
+
+    // 同一個互斥群組(exclusiveGroup)的欄位，同一列最多只能擇一填寫；沿用既有的
+    // 「必填」勾選框，只要群組裡任一個欄位的關聯設定勾了必填，就解讀成「這個
+    // 群組至少要選一個」，不是要求每個成員都填——不用另外多一個「群組必填」設定。
+    const groups = new Map<string, { fieldId: string; fieldName: string; required: boolean }[]>();
+
     for (const link of category.customFields) {
       const field = config.customFields.find((f) => f.id === link.id);
       if (!field) continue;
       const value = (row.customFieldValues?.[field.id] ?? "").trim();
-      if (link.required && !value) return `費用項目「${category.name}」需要填寫「${field.name}」`;
       if (value && field.fieldType === "select" && !field.options.some((o) => o.label === value)) {
         return `費用項目「${category.name}」的「${field.name}」選項不正確，請重新選擇`;
       }
+      if (field.exclusiveGroup) {
+        const members = groups.get(field.exclusiveGroup) ?? [];
+        members.push({ fieldId: field.id, fieldName: field.name, required: link.required });
+        groups.set(field.exclusiveGroup, members);
+        continue;
+      }
+      if (link.required && !value) return `費用項目「${category.name}」需要填寫「${field.name}」`;
     }
+
+    for (const members of groups.values()) {
+      const filled = members.filter((m) => (row.customFieldValues?.[m.fieldId] ?? "").trim());
+      if (filled.length > 1) {
+        return `費用項目「${category.name}」的「${filled.map((m) => m.fieldName).join("、")}」只能擇一填寫`;
+      }
+      if (filled.length === 0 && members.some((m) => m.required)) {
+        return `費用項目「${category.name}」需要在「${members.map((m) => m.fieldName).join(" / ")}」中擇一填寫`;
+      }
+    }
+
     return null;
+  };
+  // 這一列選的類別底下，跟這個欄位同一個互斥群組的其他關聯欄位(含自己)；沒有
+  // 群組就回傳 null，呼叫端用這個區分「一般欄位」跟「互斥群組欄位」該套哪種規則。
+  const getRowGroupLinks = (row: ExpenseRowState, field: CustomFieldConfig): CategoryCustomFieldLink[] | null => {
+    if (!field.exclusiveGroup) return null;
+    const category = expenseCategories.find((c) => c.id === row.categoryId);
+    if (!category) return null;
+    return category.customFields.filter(
+      (l) => config.customFields.find((f) => f.id === l.id)?.exclusiveGroup === field.exclusiveGroup
+    );
+  };
+  // 跟 getRowCustomFieldError 同一套規則，用來決定要不要在這個輸入框畫紅框——
+  // 一般欄位是「必填卻空白」；互斥群組欄位是「同組填了一個以上」或「整組必填卻一個都沒填」，
+  // 這兩種情況會讓組內所有欄位一起亮紅框，提示使用者這幾個欄位要一起看。
+  const isRowCustomFieldInvalid = (row: ExpenseRowState, field: CustomFieldConfig, link: CategoryCustomFieldLink): boolean => {
+    const groupLinks = getRowGroupLinks(row, field);
+    if (!groupLinks) return link.required && !(row.customFieldValues?.[field.id] ?? "").trim();
+    const filledCount = groupLinks.filter((l) => (row.customFieldValues?.[l.id] ?? "").trim()).length;
+    if (filledCount > 1) return true;
+    return filledCount === 0 && groupLinks.some((l) => l.required);
+  };
+  // 群組裡只要有任一個成員勾了必填，就代表「這個群組至少要選一個」，用來決定要不要
+  // 顯示必填提示——不能只看這個欄位自己的 link.required，不然同一組裡沒被勾必填的
+  // 那個成員會顯示成「非必填」，但實際上整組的擇一必填限制對它也一樣有效。
+  const isRowCustomFieldRequiredHint = (row: ExpenseRowState, field: CustomFieldConfig, link: CategoryCustomFieldLink): boolean => {
+    const groupLinks = getRowGroupLinks(row, field);
+    return groupLinks ? groupLinks.some((l) => l.required) : link.required;
   };
   const updateRowCustomField = (index: number, fieldId: string, value: string) => {
     setRows((prev) =>
@@ -652,7 +703,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                                   onValueChange={(v) => updateRowCustomField(i, field.id, v)}
                                 >
                                   <SelectTrigger
-                                    className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                    className={isRowCustomFieldInvalid(row, field, link) ? "border-destructive" : undefined}
                                   >
                                     <SelectValue placeholder="請選擇" />
                                   </SelectTrigger>
@@ -667,8 +718,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                                   type={field.fieldType === "date" ? "date" : "text"}
                                   value={row.customFieldValues?.[field.id] ?? ""}
                                   onChange={(e) => updateRowCustomField(i, field.id, e.target.value)}
-                                  placeholder={link.required ? `${field.name}(必填)` : field.name}
-                                  className={link.required && !(row.customFieldValues?.[field.id] ?? "").trim() ? "border-destructive" : undefined}
+                                  placeholder={link.required && !field.exclusiveGroup ? `${field.name}(必填)` : field.name}
+                                  className={isRowCustomFieldInvalid(row, field, link) ? "border-destructive" : undefined}
                                 />
                               )}
                             </TableCell>
@@ -787,7 +838,9 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                         <div key={field.id}>
                           <Label>
                             {field.name}
-                            {link.required && <span className="text-destructive"> *必填</span>}
+                            {isRowCustomFieldRequiredHint(row, field, link) && (
+                              <span className="text-destructive"> {field.exclusiveGroup ? "*擇一必填" : "*必填"}</span>
+                            )}
                           </Label>
                           {field.fieldType === "select" ? (
                             <Select
@@ -795,7 +848,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                               onValueChange={(v) => updateRowCustomField(i, field.id, v)}
                             >
                               <SelectTrigger
-                                className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                className={isRowCustomFieldInvalid(row, field, link) ? "border-destructive" : undefined}
                               >
                                 <SelectValue placeholder="請選擇" />
                               </SelectTrigger>
@@ -811,7 +864,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                               value={row.customFieldValues?.[field.id] ?? ""}
                               onChange={(e) => updateRowCustomField(i, field.id, e.target.value)}
                               placeholder={field.name}
-                              className={link.required && !(row.customFieldValues?.[field.id] ?? "").trim() ? "border-destructive" : undefined}
+                              className={isRowCustomFieldInvalid(row, field, link) ? "border-destructive" : undefined}
                             />
                           )}
                         </div>

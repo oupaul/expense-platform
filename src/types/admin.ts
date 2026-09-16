@@ -12,6 +12,8 @@ export interface CustomFieldItem {
   companyId: string;
   name: string;
   fieldType: "text" | "date" | "select";
+  // 同一個群組名稱的欄位彼此互斥(同一列最多只能填一個)，null/undefined 代表獨立欄位。
+  exclusiveGroup: string | null;
   sortOrder: number;
   active: boolean;
 }
