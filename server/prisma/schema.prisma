@@ -217,6 +217,10 @@ model CustomField {
 
   options       CustomFieldOption[]
   categoryLinks ExpenseCategoryCustomField[]
+  // 這個欄位被哪些「其他欄位的選項」觸發顯示(例如 CAPEX 被「專案分類」的 ESCO
+  // 選項觸發)——是這個欄位「被誰觸發」的那一端，跟 CustomFieldOption.triggeredFields
+  // (某個選項要觸發顯示哪些欄位)是同一張關聯表的兩個方向。
+  triggeredByOptions CustomFieldOptionTrigger[]
 
   @@unique([companyId, name])
   @@index([companyId, active])
@@ -229,9 +233,29 @@ model CustomFieldOption {
   label         String
   sortOrder     Int         @default(0)
   active        Boolean     @default(true)
+  // 選到這個選項時，費用明細列要多顯示/要求填寫哪些「其他」自訂欄位——例如「專案
+  // 分類」這個欄位的「ESCO」選項，可以設定觸發顯示「CAPEX」欄位。跟
+  // ExpenseCategoryCustomField(費用項目類別觸發自訂欄位)是同一種模式，差別只是
+  // 觸發來源從「選了哪個費用項目類別」換成「選了某個自訂欄位的哪個選項」。刻意只做
+  // 一層(觸發出來的欄位本身若是 select，它的選項不會再往下觸發)，目前沒有更深層
+  // 巢狀的需求，硬做反而增加使用者設定時搞混層級的風險。
+  triggeredFields CustomFieldOptionTrigger[]
 
   @@unique([customFieldId, label])
   @@index([customFieldId, active])
+}
+
+model CustomFieldOptionTrigger {
+  id                  String            @id @default(cuid())
+  customFieldOptionId String
+  customFieldOption   CustomFieldOption @relation(fields: [customFieldOptionId], references: [id], onDelete: Cascade)
+  customFieldId       String
+  customField         CustomField       @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  // 這個 layout 跟 ExpenseCategoryCustomField.required 同一種語意：選到觸發來源的
+  // 選項時，這個被觸發的欄位是必填還是選填。
+  required Boolean @default(true)
+
+  @@unique([customFieldOptionId, customFieldId])
 }
 
 // 費用類別 ↔ 自訂欄位的關聯：選到這個類別時，費用明細列要多顯示哪些自訂欄位、

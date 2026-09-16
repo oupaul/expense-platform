@@ -9,6 +9,7 @@ import { createOptionRouter } from "./optionResource.js";
 type CustomFieldOptionScoped = Request<{ companyId: string; customFieldId: string }>;
 type CustomFieldOptionScopedWithId = Request<{ companyId: string; customFieldId: string; optionId: string }>;
 type CategoryCustomFieldScoped = Request<{ companyId: string; categoryId: string }>;
+type OptionTriggerScoped = Request<{ companyId: string; customFieldId: string; optionId: string }>;
 
 // 自訂欄位本身(名稱/型態/排序/啟用)沿用既有的 createOptionRouter 工廠——跟
 // ExpenseCategory 用 extraFields 擴充 requiresProjectCode 是同一招，fieldType
@@ -87,6 +88,77 @@ customFieldOptionsRouter.delete("/:optionId", async (req: CustomFieldOptionScope
 });
 
 customFieldsRouter.use("/:customFieldId/options", customFieldOptionsRouter);
+
+// 自訂欄位選項 → 自訂欄位的觸發設定，掛在
+// /custom-fields/:customFieldId/options/:optionId/triggered-fields 底下——選到這個
+// 選項時(例如「專案分類」的「ESCO」)，費用明細列要多顯示/要求哪些「其他」自訂欄位
+// (例如「CAPEX」)。跟 expenseCategoryCustomFieldsRouter 是同一種模式，觸發來源從
+// 「選了哪個費用項目類別」換成「選了某個自訂欄位的哪個選項」。
+export const optionTriggersRouter = Router({ mergeParams: true });
+optionTriggersRouter.use(requireAuth, requireSameCompany, requireRole("admin"));
+
+async function findOwnedOption(companyId: string, customFieldId: string, optionId: string) {
+  const field = await findOwnedCustomField(companyId, customFieldId);
+  if (!field) return null;
+  return prisma.customFieldOption.findFirst({ where: { id: optionId, customFieldId: field.id } });
+}
+
+// GET /api/companies/:companyId/custom-fields/:customFieldId/options/:optionId/triggered-fields
+optionTriggersRouter.get("/", async (req: OptionTriggerScoped, res) => {
+  const option = await findOwnedOption(req.params.companyId, req.params.customFieldId, req.params.optionId);
+  if (!option) return res.status(404).json({ error: "找不到這個選項" });
+  const links = await prisma.customFieldOptionTrigger.findMany({ where: { customFieldOptionId: option.id } });
+  res.json(links.map((l) => ({ customFieldId: l.customFieldId, required: l.required })));
+});
+
+const triggerLinksSchema = z.object({
+  links: z.array(z.object({ customFieldId: z.string().min(1), required: z.boolean().default(true) })),
+});
+
+// PUT /api/companies/:companyId/custom-fields/:customFieldId/options/:optionId/triggered-fields
+// { links: [{ customFieldId, required }] }——整批取代這個選項目前觸發的自訂欄位。
+optionTriggersRouter.put("/", async (req: OptionTriggerScoped, res) => {
+  const option = await findOwnedOption(req.params.companyId, req.params.customFieldId, req.params.optionId);
+  if (!option) return res.status(404).json({ error: "找不到這個選項" });
+  const parsed = triggerLinksSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const fieldIds = parsed.data.links.map((l) => l.customFieldId);
+  const uniqueFieldIds = new Set(fieldIds);
+  if (uniqueFieldIds.size !== fieldIds.length) {
+    return res.status(400).json({ error: "同一個自訂欄位不能重複關聯" });
+  }
+  // 不能觸發自己(選了 ESCO 又跳出「專案分類」本身沒有意義，畫面上也會混淆)。
+  if (fieldIds.includes(req.params.customFieldId)) {
+    return res.status(400).json({ error: "欄位不能觸發自己" });
+  }
+  const validFields = await prisma.customField.findMany({
+    where: { id: { in: fieldIds }, companyId: req.params.companyId },
+  });
+  if (validFields.length !== uniqueFieldIds.size) {
+    return res.status(400).json({ error: "有自訂欄位不存在或不屬於此公司" });
+  }
+
+  // 整批取代，理由跟 expenseCategoryCustomFieldsRouter 的 PUT 一樣：這張表本來就不大，
+  // 直接整批換掉比對比「加了哪些、刪了哪些」更不容易漏掉邊界情況。
+  await prisma.$transaction([
+    prisma.customFieldOptionTrigger.deleteMany({ where: { customFieldOptionId: option.id } }),
+    ...(parsed.data.links.length > 0
+      ? [
+          prisma.customFieldOptionTrigger.createMany({
+            data: parsed.data.links.map((l) => ({
+              customFieldOptionId: option.id,
+              customFieldId: l.customFieldId,
+              required: l.required,
+            })),
+          }),
+        ]
+      : []),
+  ]);
+  res.status(204).end();
+});
+
+customFieldOptionsRouter.use("/:optionId/triggered-fields", optionTriggersRouter);
 
 // 費用類別 ↔ 自訂欄位的關聯管理，掛在
 // /expense-categories/:categoryId/custom-fields 底下——是 ExpenseCategory.

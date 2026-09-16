@@ -13,6 +13,7 @@ import { AttachmentUpload, type StagedFile } from "@/components/AttachmentUpload
 import { apiFetch, apiUpload, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationDetail as ApplicationDetailType } from "@/types/application";
+import type { CategoryCustomFieldLink } from "@/types/company-config";
 import { ALL_CURRENCIES } from "@/lib/currencies";
 import { PrintableApplicationForm } from "@/components/print/PrintableApplicationForm";
 import { formatAmount } from "@/lib/utils";
@@ -314,15 +315,34 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   // 設定了必填，都要顯示——不然選到必填類別時使用者根本看不到欄位可以填。
   const showProjectCodeColumn = optionalFields.projectCode || expenseCategories.some((c) => c.requiresProjectCode);
 
-  // 方案 A：桌面表格固定顯示「有被至少一個費用項目類別關聯到」的自訂欄位欄位，
-  // 跟 showProjectCodeColumn 同一套邏輯——不然類別關聯了卻沒地方能填。沒被任何類別
-  // 關聯到的自訂欄位(還在後台設定、尚未關聯)不佔欄位，避免整張表格塞滿用不到的空欄。
-  const visibleCustomFields = config.customFields.filter((field) =>
-    expenseCategories.some((c) => c.customFields.some((l) => l.id === field.id))
+  // 方案 A：桌面表格固定顯示「有被至少一個費用項目類別關聯到」的自訂欄位，或是
+  // 「被某個欄位的選項觸發顯示」的自訂欄位(例如「專案分類」的 ESCO 選項觸發顯示
+  // 「CAPEX」)——跟 showProjectCodeColumn 同一套邏輯，不然關聯了/被觸發了卻沒地方
+  // 能填。都沒有的自訂欄位(還在後台設定、尚未關聯/觸發)不佔欄位，避免整張表格
+  // 塞滿用不到的空欄。
+  const visibleCustomFields = config.customFields.filter(
+    (field) =>
+      expenseCategories.some((c) => c.customFields.some((l) => l.id === field.id)) ||
+      config.customFields.some((parent) => parent.options.some((o) => o.triggeredFields.some((t) => t.id === field.id)))
   );
-  // 這一列選的類別關聯到哪些自訂欄位——沒選類別、或選的類別沒關聯任何欄位就回傳空陣列。
-  const getRowCustomFieldLinks = (row: ExpenseRowState) =>
-    expenseCategories.find((c) => c.id === row.categoryId)?.customFields ?? [];
+  // 這一列選的類別關聯到哪些自訂欄位，包含兩層：直接關聯到類別的欄位，加上這一列
+  // 目前選的值有沒有觸發出「其他」欄位(例如選了「專案分類」的 ESCO，就多出
+  // 「CAPEX」)——只往下展開一層，觸發出來的欄位本身不會再往下觸發別的欄位。
+  // 沒選類別就回傳空陣列。
+  const getRowCustomFieldLinks = (row: ExpenseRowState): CategoryCustomFieldLink[] => {
+    const category = expenseCategories.find((c) => c.id === row.categoryId);
+    if (!category) return [];
+    const links = [...category.customFields];
+    for (const link of category.customFields) {
+      const field = config.customFields.find((f) => f.id === link.id);
+      if (!field || field.fieldType !== "select") continue;
+      const value = row.customFieldValues?.[field.id];
+      if (!value) continue;
+      const option = field.options.find((o) => o.label === value);
+      if (option) links.push(...option.triggeredFields);
+    }
+    return links;
+  };
   const getRowCustomFieldLink = (row: ExpenseRowState, fieldId: string) =>
     getRowCustomFieldLinks(row).find((l) => l.id === fieldId);
   // 跟後端 validateApplicationInput 同一套規則：必填欄位不能空白；select 型欄位如果
@@ -331,7 +351,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const getRowCustomFieldError = (row: ExpenseRowState): string | null => {
     const category = expenseCategories.find((c) => c.id === row.categoryId);
     if (!category) return null;
-    for (const link of category.customFields) {
+    for (const link of getRowCustomFieldLinks(row)) {
       const field = config.customFields.find((f) => f.id === link.id);
       if (!field) continue;
       const value = (row.customFieldValues?.[field.id] ?? "").trim();

@@ -36,9 +36,18 @@ export interface ExchangeRateConfig {
   rateToTWD: string;
 }
 
+export interface CategoryCustomFieldLink {
+  id: string; // CustomField.id
+  required: boolean;
+}
+
 export interface CustomFieldOptionConfig {
   id: string;
   label: string;
+  // 選到這個選項時，要多顯示/要求填寫哪些「其他」自訂欄位(例如「專案分類」的
+  // 「ESCO」選項觸發顯示「CAPEX」)——跟 ExpenseCategoryOption.customFields 是同一種
+  // 形狀(CustomField.id + required)，只是觸發來源從「類別」換成「欄位的某個選項」。
+  triggeredFields: CategoryCustomFieldLink[];
 }
 
 export interface CustomFieldConfig {
@@ -46,11 +55,6 @@ export interface CustomFieldConfig {
   name: string;
   fieldType: "text" | "date" | "select";
   options: CustomFieldOptionConfig[];
-}
-
-export interface CategoryCustomFieldLink {
-  id: string; // CustomField.id
-  required: boolean;
 }
 
 export interface ExpenseCategoryOption extends SelectOption {

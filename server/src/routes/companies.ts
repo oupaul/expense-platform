@@ -63,7 +63,20 @@ companiesRouter.get("/:slug/config", async (req, res) => {
       customFields: {
         where: { active: true },
         orderBy: { sortOrder: "asc" },
-        include: { options: { where: { active: true }, orderBy: { sortOrder: "asc" } } },
+        include: {
+          options: {
+            where: { active: true },
+            orderBy: { sortOrder: "asc" },
+            // 選項觸發哪些「其他」自訂欄位——只做一層，觸發出來的欄位本身不會
+            // 再往下查它自己的 triggeredFields(見 schema.prisma 的說明)。
+            include: {
+              triggeredFields: {
+                where: { customField: { active: true } },
+                select: { customFieldId: true, required: true },
+              },
+            },
+          },
+        },
       },
     },
   });
@@ -110,7 +123,11 @@ companiesRouter.get("/:slug/config", async (req, res) => {
       id: f.id,
       name: f.name,
       fieldType: f.fieldType,
-      options: f.options.map((o) => ({ id: o.id, label: o.label })),
+      options: f.options.map((o) => ({
+        id: o.id,
+        label: o.label,
+        triggeredFields: o.triggeredFields.map((t) => ({ id: t.customFieldId, required: t.required })),
+      })),
     })),
     approvalStages: company.approvalStages.map((s) => ({
       id: s.id,

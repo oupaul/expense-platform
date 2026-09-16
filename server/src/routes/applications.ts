@@ -138,7 +138,23 @@ async function validateApplicationInput(companyId: string, data: CreateData) {
       include: {
         customFields: {
           where: { customField: { active: true } },
-          include: { customField: { include: { options: { where: { active: true } } } } },
+          include: {
+            customField: {
+              include: {
+                options: {
+                  where: { active: true },
+                  // 選項觸發哪些「其他」自訂欄位——只做一層，理由跟 companies.ts
+                  // 的 GET /:slug/config 同一段說明。
+                  include: {
+                    triggeredFields: {
+                      where: { customField: { active: true } },
+                      include: { customField: { include: { options: { where: { active: true } } } } },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     }),
@@ -189,13 +205,36 @@ async function validateApplicationInput(companyId: string, data: CreateData) {
         };
       }
       if (value && link.customField.fieldType === "select") {
-        const validLabels = new Set(link.customField.options.map((o) => o.label));
-        if (!validLabels.has(value)) {
+        const option = link.customField.options.find((o) => o.label === value);
+        if (!option) {
           return {
             ok: false as const,
             status: 400,
             error: `費用項目「${category.name}」的「${link.customField.name}」選項不正確，請重新選擇`,
           };
+        }
+        // 選了這個選項之後，額外要多顯示/要求填寫的欄位——套用跟上面一模一樣的規則，
+        // 只是觸發來源從「費用項目類別」換成「這個選項」，只做一層(觸發出來的欄位
+        // 本身不會再往下觸發別的欄位)。
+        for (const trigger of option.triggeredFields) {
+          const triggerValue = item.customFieldValues?.[trigger.customFieldId]?.trim() ?? "";
+          if (trigger.required && !triggerValue) {
+            return {
+              ok: false as const,
+              status: 400,
+              error: `費用項目「${category.name}」的「${link.customField.name}」選了「${value}」時需要填寫「${trigger.customField.name}」`,
+            };
+          }
+          if (triggerValue && trigger.customField.fieldType === "select") {
+            const validTriggerLabels = new Set(trigger.customField.options.map((o) => o.label));
+            if (!validTriggerLabels.has(triggerValue)) {
+              return {
+                ok: false as const,
+                status: 400,
+                error: `費用項目「${category.name}」的「${trigger.customField.name}」選項不正確，請重新選擇`,
+              };
+            }
+          }
         }
       }
     }
