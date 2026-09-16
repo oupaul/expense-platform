@@ -45,9 +45,6 @@ export interface CustomFieldConfig {
   id: string;
   name: string;
   fieldType: "text" | "date" | "select";
-  // 同一個群組名稱的欄位，在同一個費用項目類別底下同一列最多只能填一個(擇一)。
-  // undefined 代表這個欄位不受任何互斥限制。
-  exclusiveGroup?: string;
   options: CustomFieldOptionConfig[];
 }
 

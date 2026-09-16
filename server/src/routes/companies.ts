@@ -110,7 +110,6 @@ companiesRouter.get("/:slug/config", async (req, res) => {
       id: f.id,
       name: f.name,
       fieldType: f.fieldType,
-      exclusiveGroup: f.exclusiveGroup ?? undefined,
       options: f.options.map((o) => ({ id: o.id, label: o.label })),
     })),
     approvalStages: company.approvalStages.map((s) => ({

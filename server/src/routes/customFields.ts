@@ -15,18 +15,6 @@ type CategoryCustomFieldScoped = Request<{ companyId: string; categoryId: string
 // 當作額外欄位掛上去，不用整份路由重寫一次。
 export const customFieldsRouter = createOptionRouter(() => prisma.customField, {
   fieldType: z.enum(["text", "date", "select"]).optional(),
-  // 空字串視同「沒有群組」，跟 null 一樣代表這個欄位不受任何互斥限制——表單裡
-  // 這個輸入框留空送出的是 ""，不特別處理的話會存成一個「空字串群組」，導致所有
-  // 沒填群組的欄位互相誤判成同一組。這裡刻意讓 undefined 維持 undefined(不是變成
-  // null)——PUT 是只送有改到的欄位(例如改名字只送 { name })，這支路由共用的
-  // upsertSchema 在 update 時會整包 partial() 再直接 { ...rest } 丟給 Prisma，
-  // Prisma 對 update data 裡值是 undefined 的欄位視同完全沒帶、不會去動那個欄位；
-  // 如果這裡把 undefined 也轉成 null，會變成「只改名字」這種操作也把 exclusiveGroup
-  // 一起洗掉成 null，改壞這個欄位跟其他欄位互斥的設定。
-  exclusiveGroup: z
-    .string()
-    .optional()
-    .transform((v) => (v === undefined ? undefined : v.trim() ? v.trim() : null)),
 });
 
 // 自訂欄位底下的選項(只有 fieldType="select" 才會用到)，掛在

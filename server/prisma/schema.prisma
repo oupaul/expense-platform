@@ -214,12 +214,6 @@ model CustomField {
   fieldType String  @default("text")
   sortOrder Int     @default(0)
   active    Boolean @default(true)
-  // 選填的互斥群組名稱：同一個類別底下，同一個群組名稱的欄位同一列最多只能填一個
-  // (例如 CAPEX/OPEX 各自是獨立欄位，但填了群組名稱後就變成擇一)。留空(null)代表
-  // 這個欄位獨立、不受任何互斥限制，是目前所有既有欄位的行為，不會被這個新功能影響。
-  // 用自由文字而不是另外做一張 FieldGroup 表——群組成員只是「填同一個字串」，
-  // 不需要群組本身有名字以外的其他屬性，多一張表反而是不必要的正規化。
-  exclusiveGroup String?
 
   options       CustomFieldOption[]
   categoryLinks ExpenseCategoryCustomField[]
