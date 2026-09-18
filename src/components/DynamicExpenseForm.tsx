@@ -667,21 +667,37 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                               {!link ? (
                                 <span className="text-muted-foreground">-</span>
                               ) : field.fieldType === "select" ? (
-                                <Select
-                                  value={row.customFieldValues?.[field.id] ?? ""}
-                                  onValueChange={(v) => updateRowCustomField(i, field.id, v)}
-                                >
-                                  <SelectTrigger
-                                    className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                <div className="flex gap-1">
+                                  <Select
+                                    value={row.customFieldValues?.[field.id] ?? ""}
+                                    onValueChange={(v) => updateRowCustomField(i, field.id, v)}
                                   >
-                                    <SelectValue placeholder="請選擇" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {field.options.map((o) => (
-                                      <SelectItem key={o.id} value={o.label}>{o.label}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                    <SelectTrigger
+                                      className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                    >
+                                      <SelectValue placeholder="請選擇" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {field.options.map((o) => (
+                                        <SelectItem key={o.id} value={o.label}>{o.label}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  {/* Select 選了值之後沒有內建的方式可以清回空白(不像 Input 可以直接
+                                      刪字)，補一個清除按鈕——欄位不是必填時，使用者才有辦法把選錯的
+                                      值清掉、恢復成「沒有填」而不是硬選一個不對的選項。 */}
+                                  {row.customFieldValues?.[field.id] && (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      aria-label={`清除${field.name}`}
+                                      onClick={() => updateRowCustomField(i, field.id, "")}
+                                    >
+                                      ✕
+                                    </Button>
+                                  )}
+                                </div>
                               ) : (
                                 <Input
                                   type={field.fieldType === "date" ? "date" : "text"}
@@ -810,21 +826,36 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                             {link.required && <span className="text-destructive"> *必填</span>}
                           </Label>
                           {field.fieldType === "select" ? (
-                            <Select
-                              value={row.customFieldValues?.[field.id] ?? ""}
-                              onValueChange={(v) => updateRowCustomField(i, field.id, v)}
-                            >
-                              <SelectTrigger
-                                className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                            <div className="flex gap-1">
+                              <Select
+                                value={row.customFieldValues?.[field.id] ?? ""}
+                                onValueChange={(v) => updateRowCustomField(i, field.id, v)}
                               >
-                                <SelectValue placeholder="請選擇" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {field.options.map((o) => (
-                                  <SelectItem key={o.id} value={o.label}>{o.label}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                <SelectTrigger
+                                  className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                >
+                                  <SelectValue placeholder="請選擇" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {field.options.map((o) => (
+                                    <SelectItem key={o.id} value={o.label}>{o.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {/* 跟桌面表格同樣的清除按鈕，理由一樣：Select 選了值之後沒有內建的
+                                  方式可以清回空白。 */}
+                              {row.customFieldValues?.[field.id] && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  aria-label={`清除${field.name}`}
+                                  onClick={() => updateRowCustomField(i, field.id, "")}
+                                >
+                                  ✕
+                                </Button>
+                              )}
+                            </div>
                           ) : (
                             <Input
                               type={field.fieldType === "date" ? "date" : "text"}
