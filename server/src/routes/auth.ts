@@ -135,3 +135,37 @@ authRouter.post("/change-password", requireAuth, async (req, res) => {
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
   res.status(204).end();
 });
+
+// 使用者自己的「預設簽名」——存在帳號底下，不是存在某一張申請單上，填申請單/簽核時
+// 可以一鍵套用、不用每次重畫。跟簽名圖檔一樣用最基本的格式檢查擋掉亂塞的字串，
+// 大小上限搭配 index.ts 的 express.json({ limit: "5mb" })，避免單一簽名把 payload 撐爆。
+const savedSignatureSchema = z
+  .string()
+  .min(1, "簽名內容不能是空的")
+  .max(2_000_000, "簽名圖檔過大，請重新簽名或使用較小的圖片")
+  .regex(/^data:image\/(png|jpeg|jpg|webp);base64,/, "簽名格式不正確");
+
+// GET /api/auth/me/signature
+authRouter.get("/me/signature", requireAuth, async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.auth!.userId },
+    select: { savedSignature: true },
+  });
+  res.json({ signature: user?.savedSignature ?? null });
+});
+
+// PUT /api/auth/me/signature  { signature }
+authRouter.put("/me/signature", requireAuth, async (req, res) => {
+  const parsed = z.object({ signature: savedSignatureSchema }).safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  await prisma.user.update({ where: { id: req.auth!.userId }, data: { savedSignature: parsed.data.signature } });
+  res.status(204).end();
+});
+
+// DELETE /api/auth/me/signature
+authRouter.delete("/me/signature", requireAuth, async (req, res) => {
+  await prisma.user.update({ where: { id: req.auth!.userId }, data: { savedSignature: null } });
+  res.status(204).end();
+});

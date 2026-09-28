@@ -118,6 +118,7 @@ export function PendingApprovals({ auth }: { auth: AuthState }) {
                           value={signatures[app.id] ?? null}
                           onChange={(v) => setSignatures((prev) => ({ ...prev, [app.id]: v }))}
                           label="簽核簽名(核准/駁回/退回前必填)"
+                          auth={auth}
                         />
                         {expandedId === app.id && actionError && (
                           <p className="text-sm font-medium text-destructive">{actionError}</p>

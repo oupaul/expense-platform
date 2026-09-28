@@ -1007,7 +1007,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
 
             {/* 送出前必須完成簽名：手寫(滑鼠/觸控板/觸控螢幕皆可)或上傳簽名檔 */}
             <div className="rounded border border-dashed border-slate-300 p-4">
-              <SignaturePad value={applicantSignature} onChange={setApplicantSignature} label="申請人簽名(送出前必填)" />
+              <SignaturePad value={applicantSignature} onChange={setApplicantSignature} label="申請人簽名(送出前必填)" auth={auth} />
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-3">

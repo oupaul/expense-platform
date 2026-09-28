@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { apiFetch, ApiError } from "@/lib/api";
+import type { AuthState } from "@/types/auth";
 
 interface Props {
   value: string | null;
   onChange: (dataUrl: string | null) => void;
   label?: string;
+  auth: AuthState;
 }
 
 const CANVAS_WIDTH = 400;
@@ -13,12 +17,42 @@ const CANVAS_HEIGHT = 150;
 // 電子簽名輸入：手寫(畫布)跟上傳檔案共用同一個元件，統一輸出成 base64 data URL。
 // 畫布用 Pointer Events 而不是分開處理滑鼠/觸控事件 —— 筆電觸控板、滑鼠、手機/平板
 // 觸控螢幕在瀏覽器裡都會正規化成同一套 pointer 事件，不用另外寫三套邏輯。
-export function SignaturePad({ value, onChange, label }: Props) {
+export function SignaturePad({ value, onChange, label, auth }: Props) {
+  const queryClient = useQueryClient();
   const [mode, setMode] = useState<"draw" | "upload">("draw");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const [hasDrawn, setHasDrawn] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [savedError, setSavedError] = useState<string | null>(null);
+
+  // 使用者自己存的「預設簽名」，存在帳號底下(不是存在某一張申請單/簽核紀錄上)——
+  // 每個用到 SignaturePad 的地方(申請單、簽核)都可能是同一個使用者，共用同一份，
+  // 用同一個 queryKey 讓其中一處存了新的預設簽名後，另一處也會跟著更新。
+  const savedQueryKey = ["me", "signature"];
+  const { data: savedData } = useQuery({
+    queryKey: savedQueryKey,
+    queryFn: () => apiFetch<{ signature: string | null }>("/auth/me/signature", { token: auth.token }),
+  });
+  const savedSignature = savedData?.signature ?? null;
+
+  const saveMutation = useMutation({
+    mutationFn: (signature: string) => apiFetch("/auth/me/signature", { method: "PUT", token: auth.token, body: { signature } }),
+    onSuccess: () => {
+      setSavedError(null);
+      queryClient.invalidateQueries({ queryKey: savedQueryKey });
+    },
+    onError: (err) => setSavedError(err instanceof ApiError ? err.message : "儲存失敗"),
+  });
+
+  const forgetMutation = useMutation({
+    mutationFn: () => apiFetch("/auth/me/signature", { method: "DELETE", token: auth.token }),
+    onSuccess: () => {
+      setSavedError(null);
+      queryClient.invalidateQueries({ queryKey: savedQueryKey });
+    },
+    onError: (err) => setSavedError(err instanceof ApiError ? err.message : "移除失敗"),
+  });
 
   // value 被外部清成 null(例如表單送出後重置、或退回重新送出成功後回到全新的建立模式)時，
   // 畫布會換成一塊全新空白的，但 hasDrawn 是元件自己的 state，不會跟著自動歸零，
@@ -97,7 +131,9 @@ export function SignaturePad({ value, onChange, label }: Props) {
     reader.readAsDataURL(file);
   };
 
-  // 已經有簽名(不管是剛畫的還是上傳的)：顯示預覽 + 重新簽名
+  // 已經有簽名(不管是剛畫的、上傳的，還是套用已儲存的簽名)：顯示預覽 + 重新簽名。
+  // 「設為預設簽名」只在目前這個簽名還沒被存成預設值時才顯示，避免每次都跳出來、
+  // 誤以為不點一下就沒存到——已經存過的話點了也只是存一模一樣的內容，沒有意義。
   if (value) {
     return (
       <div className="space-y-2">
@@ -105,10 +141,16 @@ export function SignaturePad({ value, onChange, label }: Props) {
         <div className="inline-block rounded border bg-white p-2">
           <img src={value} alt="簽名預覽" className="h-[80px] object-contain" />
         </div>
-        <div>
+        {savedError && <p className="text-xs text-destructive">{savedError}</p>}
+        <div className="flex flex-wrap gap-2">
           <Button type="button" size="sm" variant="outline" onClick={clearCanvas}>
             重新簽名
           </Button>
+          {value !== savedSignature && (
+            <Button type="button" size="sm" variant="outline" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate(value)}>
+              {saveMutation.isPending ? "儲存中…" : "設為預設簽名"}
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -117,6 +159,27 @@ export function SignaturePad({ value, onChange, label }: Props) {
   return (
     <div className="space-y-2">
       {label && <p className="text-sm font-medium">{label}</p>}
+      {/* 使用者帳號底下存過預設簽名的話，優先讓他們一鍵套用，不用每次都重新畫/重新上傳——
+          仍然要自己點一下「使用這個簽名」才會套用到這一次的申請單/簽核，不是自動帶入，
+          保留「這是我對這次內容的簽署動作」的意思。 */}
+      {savedSignature && (
+        <div className="flex flex-wrap items-center gap-3 rounded border border-dashed bg-slate-50 p-3">
+          <img src={savedSignature} alt="已儲存的簽名預覽" className="h-[50px] object-contain" />
+          <Button type="button" size="sm" onClick={() => onChange(savedSignature)}>
+            使用這個簽名
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={forgetMutation.isPending}
+            onClick={() => forgetMutation.mutate()}
+          >
+            {forgetMutation.isPending ? "移除中…" : "不再顯示"}
+          </Button>
+        </div>
+      )}
+      {savedError && <p className="text-xs text-destructive">{savedError}</p>}
       <div className="flex gap-2">
         <button
           type="button"

@@ -338,6 +338,12 @@ model User {
   // 不能改後台設定。
   canViewAllReports Boolean @default(false)
 
+  // 使用者自己存的「預設簽名」(base64 data URL，手寫或上傳的圖片)，選填。存在使用者
+  // 帳號底下，不是存在某一張申請單上——填申請單/簽核時可以一鍵套用，不用每次重畫。
+  // 套用仍然是使用者自己主動點一下「使用已儲存的簽名」，不會自動幫這次的申請單/簽核
+  // 動作補上簽名，避免變成沒有真的簽署就送出。
+  savedSignature String? @db.Text
+
   applications   ExpenseApplication[] @relation("Applicant")
   approvalRecords ApprovalRecord[]
   uploadedAttachments Attachment[]
