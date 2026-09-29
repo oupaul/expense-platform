@@ -9,6 +9,7 @@ import { encryptSecret } from "../auth/nasSecret.js";
 import { requireAuth, requirePlatformAdmin } from "../middleware/auth.js";
 import { BACKUP_DIR, rescheduleBackupJob, runBackupNow, testNasConnection } from "../services/backupScheduler.js";
 import { testSmtpConnection, testM365Connection } from "../services/mailer.js";
+import { listActiveSince } from "../services/activityTracker.js";
 
 // 平台管理者建立/檢視租戶(公司)的路由，只有服務供應商自己能用。
 export const platformRouter = Router();
@@ -527,4 +528,45 @@ platformRouter.get("/reports/summary", async (_req, res) => {
     companiesGrowth: toSortedSeries(companiesGrowthMap),
     applicationsGrowth: toSortedSeries(applicationsGrowthMap),
   });
+});
+
+const activeSessionsQuerySchema = z.object({
+  // 服務要更新/重啟前想確認有沒有人在用，5 分鐘是預設的「還算在用」窗口；
+  // 想寬鬆一點判斷(例如週末離峰時段)可以自己調大。
+  minutes: z.coerce.number().int().min(1).max(180).default(5),
+});
+
+// GET /api/platform/active-sessions?minutes=5
+// 純記憶體資料(見 services/activityTracker.ts)，API 剛重啟的話這裡會是空的——
+// 代表「這支服務剛啟動，還沒人連進來」，不代表「真的沒人在用系統」，判讀時要注意。
+platformRouter.get("/active-sessions", async (req, res) => {
+  const parsed = activeSessionsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const entries = listActiveSince(parsed.data.minutes);
+
+  const tenantUserIds = entries.filter((e) => e.role !== "platform_admin").map((e) => e.userId);
+  const companyIds = Array.from(new Set(entries.map((e) => e.companyId).filter((id): id is string => !!id)));
+
+  const [users, companies] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: tenantUserIds } }, select: { id: true, name: true, email: true } }),
+    prisma.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true, slug: true } }),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const companyById = new Map(companies.map((c) => [c.id, c]));
+
+  const sessions = entries
+    .map((e) => ({
+      userId: e.userId,
+      name: e.role === "platform_admin" ? "(平台管理者)" : userById.get(e.userId)?.name ?? "(帳號已刪除)",
+      email: e.role === "platform_admin" ? null : userById.get(e.userId)?.email ?? null,
+      companyName: e.companyId ? companyById.get(e.companyId)?.name ?? "(未知租戶)" : null,
+      companySlug: e.companyId ? companyById.get(e.companyId)?.slug ?? null : null,
+      role: e.role,
+      lastSeenAt: new Date(e.lastSeenAt).toISOString(),
+    }))
+    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+
+  res.json({ minutes: parsed.data.minutes, count: sessions.length, sessions });
 });

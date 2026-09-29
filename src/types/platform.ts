@@ -66,6 +66,20 @@ export interface BackupFileItem {
   createdAt: string;
 }
 
+export interface ActiveSessionsResult {
+  minutes: number;
+  count: number;
+  sessions: {
+    userId: string;
+    name: string;
+    email: string | null;
+    companyName: string | null;
+    companySlug: string | null;
+    role: string;
+    lastSeenAt: string;
+  }[];
+}
+
 export interface PlatformReportSummary {
   totalCompanies: number;
   totalUsers: number;

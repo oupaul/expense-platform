@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyAuthToken } from "../auth/jwt.js";
+import { recordActivity } from "../services/activityTracker.js";
 
 // 驗證 Bearer token，把解出來的身分資訊掛到 req.auth 供後面的 handler 使用。
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -9,6 +10,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
   try {
     req.auth = verifyAuthToken(header.slice("Bearer ".length));
+    // 只要 token 驗證通過(代表這個人真的還在操作系統)就順手記一筆最後活動時間，
+    // 給平台管理者「更新前檢查有沒有人在用」的功能用，見 services/activityTracker.ts。
+    recordActivity(req.auth);
     next();
   } catch {
     return res.status(401).json({ error: "登入已過期，請重新登入" });
