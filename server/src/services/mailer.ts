@@ -132,6 +132,12 @@ export async function sendMail(opts: MailOpts): Promise<void> {
         // 公司自己架的內部郵件伺服器很常見用自我簽署/內部 CA 憑證，預設(false)維持正常的
         // 憑證驗證；只有管理者在「通知」設定明確勾選「信任自我簽署憑證」才關掉驗證。
         tls: { rejectUnauthorized: !config.smtpAllowSelfSigned },
+        // nodemailer 預設 greetingTimeout 只有 30 秒——部分自架郵件主機收到連線後會先做
+        // PTR 反解/RBL 查詢才送出 greeting，實測可能要 1 分鐘左右，預設值會讓這種主機
+        // 每次寄信都逾時失敗，抓寬一點才不會正式通知信也寄不出去。
+        connectionTimeout: 90_000,
+        greetingTimeout: 90_000,
+        socketTimeout: 90_000,
       });
       await transporter.sendMail({
         from: config.smtpFrom || config.smtpUser,
@@ -229,11 +235,12 @@ export async function testSmtpConnection(params: {
       auth: { user: params.user, pass: decryptSecret(params.passEnc) },
       tls: { rejectUnauthorized: !params.allowSelfSigned },
       // 「測試連線」是使用者按了按鈕在等結果，主機/port 真的連不上的話(防火牆擋住、
-      // port 打錯)，不該讓他等到 nodemailer 預設的逾時時間才知道——明確設短一點，
-      // 10 秒內連不上就直接回報失敗。
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 10_000,
+      // port 打錯)，不該讓他等到 nodemailer 預設的逾時時間才知道；但部分自架郵件主機
+      // 收到連線後會先做 PTR 反解/RBL 查詢才送出 greeting，實測可能要 1 分鐘左右，
+      // 抓太短容易把「只是比較慢」誤判成「連不上」，所以跟正式寄信用的逾時抓一樣寬。
+      connectionTimeout: 90_000,
+      greetingTimeout: 90_000,
+      socketTimeout: 90_000,
     });
     await transporter.verify();
     if (params.testRecipient) {
