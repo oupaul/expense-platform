@@ -520,7 +520,15 @@ model Notification {
 
   read Boolean @default(false)
 
+  // 站內通知(這筆記錄本身)寫入成功，不代表 email 也真的寄出去了——這兩個欄位才是給
+  // 管理者看「email 這個管道實際結果」用的。"sent"：寄送成功；"failed"：寄送失敗
+  // (emailError 是失敗原因，來自 mailer.ts 的 formatMailError())；"skipped"：連
+  // 寄信設定都不完整(租戶/平台層級都沒設定好)，本來就不會嘗試寄送。
+  emailStatus String  @default("skipped")
+  emailError  String? @db.Text
+
   createdAt DateTime @default(now())
 
   @@index([companyId, userId, read])
+  @@index([companyId, emailStatus])
 }

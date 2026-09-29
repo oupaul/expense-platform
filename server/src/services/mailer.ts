@@ -101,7 +101,12 @@ async function resolveMailConfig(companyId: string): Promise<EffectiveMailConfig
   };
 }
 
-export async function sendMail(opts: MailOpts): Promise<void> {
+// 呼叫端(notifications.ts)要把這個結果寫回對應的 Notification 記錄(emailStatus/
+// emailError)，讓管理者在後台看得到「通知到底有沒有真的寄出去」，不用只看站內通知
+// 寫入成功就以為 email 也一定寄成功了——這兩件事完全是分開的。
+export type MailResult = { status: "sent" } | { status: "skipped" } | { status: "failed"; error: string };
+
+export async function sendMail(opts: MailOpts): Promise<MailResult> {
   const config = await resolveMailConfig(opts.companyId);
 
   if (!config) {
@@ -109,7 +114,7 @@ export async function sendMail(opts: MailOpts): Promise<void> {
       console.warn("尚未設定完整的寄信帳號(租戶或平台層級都沒有)，email 通知將不會寄送，只會記錄站內通知。");
       warnedMissingConfig = true;
     }
-    return;
+    return { status: "skipped" };
   }
 
   try {
@@ -147,10 +152,12 @@ export async function sendMail(opts: MailOpts): Promise<void> {
         ...(opts.html ? { html: opts.html } : {}),
       });
     }
+    return { status: "sent" };
   } catch (err) {
     // 寄信失敗(帳密/憑證錯誤、額度用完等)不該讓觸發通知的那個 API 請求(送出/簽核申請單)
     // 跟著失敗——使用者的申請單本身有沒有成功送出，跟通知信寄不寄得出去是兩件事。
     console.error(`寄送 email 通知失敗(收件人：${opts.to})`, err);
+    return { status: "failed", error: formatMailError(err) };
   }
 }
 

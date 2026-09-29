@@ -14,6 +14,7 @@ import { exchangeRatesRouter } from "./routes/exchangeRates.js";
 import { usersRouter } from "./routes/users.js";
 import { reportsRouter } from "./routes/reports.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { notificationLogRouter } from "./routes/notificationLog.js";
 import { platformAuthRouter } from "./routes/platformAuth.js";
 import { platformRouter } from "./routes/platform.js";
 import { customFieldsRouter, expenseCategoryCustomFieldsRouter } from "./routes/customFields.js";
@@ -75,6 +76,7 @@ app.use("/api/companies/:companyId/users", usersRouter);
 app.use("/api/companies/:companyId/reports", reportsRouter);
 app.use("/api/companies/:companyId/notifications", notificationsRouter);
 app.use("/api/companies/:companyId/notification-config", companyNotificationConfigRouter);
+app.use("/api/companies/:companyId/notification-log", notificationLogRouter);
 
 app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   req.log.error(err);

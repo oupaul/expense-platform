@@ -20,7 +20,10 @@ async function notify(params: {
   const { companyId, applicationId, type, title, message, emailFields, emailNote, recipients } = params;
   if (recipients.length === 0) return;
 
-  await prisma.notification.createMany({
+  // 用 createManyAndReturn(而不是 createMany)才拿得回每一筆的 id，跟 recipients 依
+  // 陣列順序一一對應——之後 email 實際寄送完才知道結果，要用這個 id 把結果寫回同一筆
+  // 記錄，讓管理者在後台能看到「這個人的這則通知，email 到底有沒有真的寄出去」。
+  const created = await prisma.notification.createManyAndReturn({
     data: recipients.map((r) => ({ companyId, userId: r.id, applicationId, type, title, message })),
   });
 
@@ -50,7 +53,25 @@ async function notify(params: {
     linkUrl,
   });
 
-  await Promise.allSettled(recipients.map((r) => sendMail({ to: r.email, subject: title, text, html, companyId })));
+  // recipients/created 兩個陣列順序一致(都是照 createManyAndReturn 的 data 順序)，
+  // 用 index 配對起來，寄送完就把結果寫回那個人對應的 Notification 記錄。
+  const results = await Promise.allSettled(recipients.map((r) => sendMail({ to: r.email, subject: title, text, html, companyId })));
+  await Promise.all(
+    results.map((result, i) => {
+      const notificationId = created[i]?.id;
+      if (!notificationId) return Promise.resolve();
+      // sendMail() 內部已經自己 try/catch 過，理論上不會走到 rejected，但 Promise.allSettled
+      // 本身的型別就是可能兩種狀態，這裡還是把 rejected 一併當作失敗處理比較保險。
+      const mailResult = result.status === "fulfilled" ? result.value : ({ status: "failed", error: String(result.reason) } as const);
+      return prisma.notification.update({
+        where: { id: notificationId },
+        data: {
+          emailStatus: mailResult.status,
+          emailError: mailResult.status === "failed" ? mailResult.error : null,
+        },
+      });
+    })
+  );
 }
 
 // 某個簽核關卡的角色(roleKey)在這家公司裡實際對應到的使用者——可能不只一人

@@ -58,6 +58,20 @@ export interface ReportSummary {
   }[];
 }
 
+export interface NotificationLogResult {
+  statusCounts: { status: string; count: number }[];
+  items: {
+    id: string;
+    recipientName: string;
+    recipientEmail: string;
+    type: string;
+    title: string;
+    emailStatus: "sent" | "failed" | "skipped";
+    emailError: string | null;
+    createdAt: string;
+  }[];
+}
+
 // 租戶自己的寄信設定——跟 src/types/platform.ts 的 NotificationConfig 形狀一樣，
 // 只多一個 usingPlatformDefault：這家公司目前有沒有真的在用自己的設定，還是
 // 退回平台層級的預設值(多數租戶一開始都是這個狀態)。
