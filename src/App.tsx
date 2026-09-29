@@ -12,9 +12,11 @@ import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import { PlatformApp } from "@/components/platform/PlatformApp";
 import { BrandingProvider } from "@/components/BrandingProvider";
 import { NotificationBell } from "@/components/NotificationBell";
+import { IdleWarningDialog } from "@/components/IdleWarningDialog";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompanyConfig } from "@/hooks/useCompanyConfig";
+import { useIdleLogout } from "@/hooks/useIdleLogout";
 import type { AuthState } from "@/types/auth";
 
 const queryClient = new QueryClient();
@@ -129,13 +131,20 @@ function App() {
   // /platform 是服務供應商管理租戶用的入口，跟一般租戶使用者的登入完全分開一套畫面/token，
   // 用路徑判斷走哪一邊就好，不需要為了這一個分岔另外拉一個路由函式庫進來。
   const isPlatformRoute = window.location.pathname.startsWith("/platform");
+  // 閒置 30 分鐘自動登出(最後 60 秒跳出警告)——JWT 本身固定 8 小時後才過期，跟有沒有
+  // 操作無關，單靠它沒辦法防止有人離開座位、分頁沒關就被別人接手操作，需要另外做
+  // 這層閒置偵測。平台管理路由(/platform)有自己一套 token/auth，不歸這裡管。
+  const { secondsLeft, stayLoggedIn } = useIdleLogout({ enabled: !isPlatformRoute && !!auth, onIdle: logout });
 
   return (
     <QueryClientProvider client={queryClient}>
       {isPlatformRoute ? (
         <PlatformApp />
       ) : auth ? (
-        <AuthenticatedApp auth={auth} logout={logout} />
+        <>
+          <AuthenticatedApp auth={auth} logout={logout} />
+          {secondsLeft !== null && <IdleWarningDialog secondsLeft={secondsLeft} onStay={stayLoggedIn} onLogoutNow={logout} />}
+        </>
       ) : (
         <LoginForm
           onLogin={login}

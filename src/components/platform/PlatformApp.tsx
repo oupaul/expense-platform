@@ -6,8 +6,10 @@ import { BackupSettings } from "@/components/platform/BackupSettings";
 import { NotificationSettings } from "@/components/platform/NotificationSettings";
 import { ActiveSessions } from "@/components/platform/ActiveSessions";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
+import { IdleWarningDialog } from "@/components/IdleWarningDialog";
 import { Button } from "@/components/ui/button";
 import { usePlatformAuth } from "@/hooks/usePlatformAuth";
+import { useIdleLogout } from "@/hooks/useIdleLogout";
 
 // 動態載入：跟租戶端的報表一樣，recharts 很重，平台管理者不見得每次登入都會點報表。
 const PlatformReports = lazy(() =>
@@ -21,11 +23,15 @@ type Tab = "companies" | "admins" | "backup" | "notifications" | "reports" | "se
 export function PlatformApp() {
   const { auth, login, logout } = usePlatformAuth();
   const [tab, setTab] = useState<Tab>("companies");
+  // 平台管理者的權限比一般租戶使用者更高(能建租戶、重設任何 admin 的密碼)，閒置
+  // 自動登出這件事同樣重要，甚至更重要，見 src/hooks/useIdleLogout.ts 的完整說明。
+  const { secondsLeft, stayLoggedIn } = useIdleLogout({ enabled: !!auth, onIdle: logout });
 
   if (!auth) return <PlatformLoginForm onLogin={login} />;
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {secondsLeft !== null && <IdleWarningDialog secondsLeft={secondsLeft} onStay={stayLoggedIn} onLogoutNow={logout} />}
       <div className="flex items-center justify-center gap-2 border-b bg-slate-900 px-4 py-2 text-white">
         <button
           onClick={() => setTab("companies")}
