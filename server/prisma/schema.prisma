@@ -136,6 +136,25 @@ model Company {
   m365TenantId String?
   m365ClientId String?
 
+  // 這家租戶自己的寄信設定(選填)——留空(notifyAuthMethod 是 null)代表沿用平台層級
+  // 的預設寄信設定(NotificationConfig 那個 singleton)，填了才會改用這裡的設定。
+  // 跟平台層級同一套 authMethod("smtp" / "m365_oauth2")+ 兩組欄位的形狀，密碼/
+  // client secret 一樣用跟 JWT_SECRET 同源衍生的金鑰加密存進來。SMTP 密碼/M365
+  // client secret 是這家公司自己的機密，只有自己的 admin 能看得到「有沒有設定」，
+  // 不會透過任何公開端點回傳明碼。
+  notifyAuthMethod          String?
+  notifySmtpHost            String?
+  notifySmtpPort            Int?
+  notifySmtpSecure          Boolean?
+  notifySmtpUser            String?
+  notifySmtpPassEnc         String? @db.Text
+  notifySmtpFrom            String?
+  notifySmtpAllowSelfSigned Boolean?
+  notifyM365TenantId        String?
+  notifyM365ClientId        String?
+  notifyM365ClientSecretEnc String? @db.Text
+  notifyM365FromAddress     String?
+
   departments       Department[]
   expenseCategories ExpenseCategory[]
   expenseNatures    ExpenseNature[]

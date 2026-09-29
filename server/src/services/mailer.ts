@@ -2,54 +2,139 @@ import nodemailer from "nodemailer";
 import { prisma } from "../db.js";
 import { decryptSecret } from "../auth/nasSecret.js";
 
-// SMTP/M365 設定放在資料庫(NotificationConfig，平台管理頁面「通知」分頁維護)，不是 .env——
-// 跟 BackupConfig 的 NAS 設定同一種模式，平台管理者不用 SSH 進主機改設定檔、重啟服務，
-// 直接在後台畫面改、按「測試連線」馬上知道有沒有設定對。沒啟用或還沒設定完整就直接跳過，
-// email 靜默略過、只記一次警告，站內通知(DB 那份)完全不受影響。
+// SMTP/M365 設定放在資料庫，不是 .env——跟 BackupConfig 的 NAS 設定同一種模式，
+// 管理者不用 SSH 進主機改設定檔、重啟服務，直接在後台畫面改、按「測試連線」馬上
+// 知道有沒有設定對。沒啟用或還沒設定完整就直接跳過，email 靜默略過、只記一次警告，
+// 站內通知(DB 那份)完全不受影響。
+//
+// 兩層設定：每家租戶可以在自己的後台設定專屬的寄信方式(Company.notify* 欄位)，
+// 沒設定(notifyAuthMethod 是 null，或設定不完整)就沿用平台層級的預設值
+// (NotificationConfig 那個 singleton，在 /platform「通知」分頁維護)。多數客戶
+// 一開始都不用自己設定，直接用平台預設寄出去就好，只有想用自己公司郵件伺服器
+// 寄信的客戶才需要另外設定。
 let warnedMissingConfig = false;
 
-type MailOpts = { to: string; subject: string; text: string; html?: string };
+// 信件本身的內容——不含 companyId，因為 sendMailViaM365Graph/SMTP transporter 這些
+// 實際寄信的函式不需要知道是哪家公司觸發的，companyId 只是 sendMail() 自己拿去查
+// 要用哪組寄信設定，不需要往下傳。
+type MailContent = { to: string; subject: string; text: string; html?: string };
+type MailOpts = MailContent & { companyId: string };
+
+type EffectiveMailConfig =
+  | { authMethod: "smtp"; smtpHost: string; smtpPort: number; smtpSecure: boolean; smtpUser: string; smtpPassEnc: string; smtpFrom: string | null; smtpAllowSelfSigned: boolean }
+  | { authMethod: "m365_oauth2"; m365TenantId: string; m365ClientId: string; m365ClientSecretEnc: string; m365FromAddress: string };
+
+// 這家公司自己有沒有設定完整的寄信方式，有的話優先用；沒有(或選了方式但填得不完整，
+// 例如剛開始填一半)就退回平台預設。刻意不做「一半用租戶一半用平台」的混合——設定
+// 不完整時整組退回平台預設，比較不會讓使用者搞不清楚實際上是用誰的帳號在寄信。
+async function resolveMailConfig(companyId: string): Promise<EffectiveMailConfig | null> {
+  const [company, platform] = await Promise.all([
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        notifyAuthMethod: true,
+        notifySmtpHost: true,
+        notifySmtpPort: true,
+        notifySmtpSecure: true,
+        notifySmtpUser: true,
+        notifySmtpPassEnc: true,
+        notifySmtpFrom: true,
+        notifySmtpAllowSelfSigned: true,
+        notifyM365TenantId: true,
+        notifyM365ClientId: true,
+        notifyM365ClientSecretEnc: true,
+        notifyM365FromAddress: true,
+      },
+    }),
+    prisma.notificationConfig.findUnique({ where: { id: "singleton" } }),
+  ]);
+
+  if (company?.notifyAuthMethod === "smtp" && company.notifySmtpHost && company.notifySmtpUser && company.notifySmtpPassEnc) {
+    return {
+      authMethod: "smtp",
+      smtpHost: company.notifySmtpHost,
+      smtpPort: company.notifySmtpPort ?? 587,
+      smtpSecure: company.notifySmtpSecure ?? false,
+      smtpUser: company.notifySmtpUser,
+      smtpPassEnc: company.notifySmtpPassEnc,
+      smtpFrom: company.notifySmtpFrom,
+      smtpAllowSelfSigned: company.notifySmtpAllowSelfSigned ?? false,
+    };
+  }
+  if (
+    company?.notifyAuthMethod === "m365_oauth2" &&
+    company.notifyM365TenantId &&
+    company.notifyM365ClientId &&
+    company.notifyM365ClientSecretEnc &&
+    company.notifyM365FromAddress
+  ) {
+    return {
+      authMethod: "m365_oauth2",
+      m365TenantId: company.notifyM365TenantId,
+      m365ClientId: company.notifyM365ClientId,
+      m365ClientSecretEnc: company.notifyM365ClientSecretEnc,
+      m365FromAddress: company.notifyM365FromAddress,
+    };
+  }
+
+  if (!platform?.smtpEnabled) return null;
+  if (platform.authMethod === "m365_oauth2") {
+    if (!platform.m365TenantId || !platform.m365ClientId || !platform.m365ClientSecretEnc || !platform.m365FromAddress) return null;
+    return {
+      authMethod: "m365_oauth2",
+      m365TenantId: platform.m365TenantId,
+      m365ClientId: platform.m365ClientId,
+      m365ClientSecretEnc: platform.m365ClientSecretEnc,
+      m365FromAddress: platform.m365FromAddress,
+    };
+  }
+  if (!platform.smtpHost || !platform.smtpUser || !platform.smtpPassEnc) return null;
+  return {
+    authMethod: "smtp",
+    smtpHost: platform.smtpHost,
+    smtpPort: platform.smtpPort,
+    smtpSecure: platform.smtpSecure,
+    smtpUser: platform.smtpUser,
+    smtpPassEnc: platform.smtpPassEnc,
+    smtpFrom: platform.smtpFrom,
+    smtpAllowSelfSigned: platform.smtpAllowSelfSigned,
+  };
+}
 
 export async function sendMail(opts: MailOpts): Promise<void> {
-  const config = await prisma.notificationConfig.findUnique({ where: { id: "singleton" } });
-  if (!config?.smtpEnabled) return;
+  const config = await resolveMailConfig(opts.companyId);
 
-  const isM365 = config.authMethod === "m365_oauth2";
-  const configComplete = isM365
-    ? !!(config.m365TenantId && config.m365ClientId && config.m365ClientSecretEnc && config.m365FromAddress)
-    : !!(config.smtpHost && config.smtpUser && config.smtpPassEnc);
-
-  if (!configComplete) {
+  if (!config) {
     if (!warnedMissingConfig) {
-      console.warn("尚未在平台管理頁面(通知設定)設定完整寄信帳號，email 通知將不會寄送，只會記錄站內通知。");
+      console.warn("尚未設定完整的寄信帳號(租戶或平台層級都沒有)，email 通知將不會寄送，只會記錄站內通知。");
       warnedMissingConfig = true;
     }
     return;
   }
 
   try {
-    if (isM365) {
+    if (config.authMethod === "m365_oauth2") {
       await sendMailViaM365Graph(
         {
-          tenantId: config.m365TenantId!,
-          clientId: config.m365ClientId!,
-          clientSecretEnc: config.m365ClientSecretEnc!,
-          fromAddress: config.m365FromAddress!,
+          tenantId: config.m365TenantId,
+          clientId: config.m365ClientId,
+          clientSecretEnc: config.m365ClientSecretEnc,
+          fromAddress: config.m365FromAddress,
         },
         opts
       );
     } else {
       const transporter = nodemailer.createTransport({
-        host: config.smtpHost!,
+        host: config.smtpHost,
         port: config.smtpPort,
         secure: config.smtpSecure,
-        auth: { user: config.smtpUser!, pass: decryptSecret(config.smtpPassEnc!) },
+        auth: { user: config.smtpUser, pass: decryptSecret(config.smtpPassEnc) },
         // 公司自己架的內部郵件伺服器很常見用自我簽署/內部 CA 憑證，預設(false)維持正常的
-        // 憑證驗證；只有平台管理者在「通知」分頁明確勾選「信任自我簽署憑證」才關掉驗證。
+        // 憑證驗證；只有管理者在「通知」設定明確勾選「信任自我簽署憑證」才關掉驗證。
         tls: { rejectUnauthorized: !config.smtpAllowSelfSigned },
       });
       await transporter.sendMail({
-        from: config.smtpFrom || config.smtpUser!,
+        from: config.smtpFrom || config.smtpUser,
         to: opts.to,
         subject: opts.subject,
         text: opts.text,
@@ -87,7 +172,7 @@ async function getM365GraphAccessToken(tenantId: string, clientId: string, clien
 
 async function sendMailViaM365Graph(
   creds: { tenantId: string; clientId: string; clientSecretEnc: string; fromAddress: string },
-  opts: MailOpts
+  opts: MailContent
 ): Promise<void> {
   const accessToken = await getM365GraphAccessToken(creds.tenantId, creds.clientId, decryptSecret(creds.clientSecretEnc));
   // Graph 的 /users/{id}/sendMail 用 fromAddress 當路徑參數(哪個信箱寄)，跟 SMTP 的

@@ -1,0 +1,309 @@
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { apiFetch, ApiError } from "@/lib/api";
+import type { AuthState } from "@/types/auth";
+import type { CompanyNotificationConfig } from "@/types/admin";
+
+// 租戶自己的寄信設定——留空不設定的話，email 通知會沿用平台層級的預設寄信設定
+// (在服務供應商的 /platform 後台維護)，多數客戶都是這個狀態，只有想用自己公司
+// 郵件伺服器寄信的客戶才需要在這裡另外設定。跟平台層級的通知設定畫面(NotificationSettings)
+// 是同一套 UI/邏輯，差別是多了一個「目前使用平台預設值」的提示，跟一個可以清掉
+// 自己設定、改回沿用預設值的按鈕。
+export function CompanyNotificationSettings({ auth }: { auth: AuthState }) {
+  const queryClient = useQueryClient();
+  const configKey = ["company-notification-config", auth.user.companyId];
+  const basePath = `/companies/${auth.user.companyId}/notification-config`;
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  const [form, setForm] = useState({
+    authMethod: "smtp" as "smtp" | "m365_oauth2",
+    smtpHost: "",
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUser: "",
+    smtpFrom: "",
+    smtpAllowSelfSigned: false,
+    smtpPass: "",
+    m365TenantId: "",
+    m365ClientId: "",
+    m365FromAddress: "",
+    m365ClientSecret: "",
+    testRecipient: "",
+  });
+
+  const { data: config, isLoading, isError } = useQuery({
+    queryKey: configKey,
+    queryFn: () => apiFetch<CompanyNotificationConfig>(basePath, { token: auth.token }),
+  });
+
+  // 只在資料第一次載入時把表單填進去，避免使用者正在編輯時因為 query 重新整理被蓋掉。
+  useEffect(() => {
+    if (!config || loaded) return;
+    setForm((p) => ({
+      ...p,
+      authMethod: config.authMethod,
+      smtpHost: config.smtpHost,
+      smtpPort: config.smtpPort,
+      smtpSecure: config.smtpSecure,
+      smtpUser: config.smtpUser,
+      smtpFrom: config.smtpFrom,
+      smtpAllowSelfSigned: config.smtpAllowSelfSigned,
+      m365TenantId: config.m365TenantId,
+      m365ClientId: config.m365ClientId,
+      m365FromAddress: config.m365FromAddress,
+    }));
+    setLoaded(true);
+  }, [config, loaded]);
+
+  const invalidateConfig = () => queryClient.invalidateQueries({ queryKey: configKey });
+  const isM365 = form.authMethod === "m365_oauth2";
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(basePath, {
+        method: "PUT",
+        token: auth.token,
+        body: {
+          authMethod: form.authMethod,
+          smtpHost: form.smtpHost,
+          smtpPort: form.smtpPort,
+          smtpSecure: form.smtpSecure,
+          smtpUser: form.smtpUser,
+          smtpFrom: form.smtpFrom,
+          smtpAllowSelfSigned: form.smtpAllowSelfSigned,
+          ...(form.smtpPass ? { smtpPass: form.smtpPass } : {}),
+          m365TenantId: form.m365TenantId,
+          m365ClientId: form.m365ClientId,
+          m365FromAddress: form.m365FromAddress,
+          ...(form.m365ClientSecret ? { m365ClientSecret: form.m365ClientSecret } : {}),
+        },
+      }),
+    onSuccess: () => {
+      setError(null);
+      setForm((p) => ({ ...p, smtpPass: "", m365ClientSecret: "" }));
+      invalidateConfig();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "儲存失敗"),
+  });
+
+  // 清掉自己的設定，改回沿用平台預設值——不用一個一個欄位清空，後端直接整組設回 null。
+  const resetMutation = useMutation({
+    mutationFn: () => apiFetch(basePath, { method: "DELETE", token: auth.token }),
+    onSuccess: () => {
+      setError(null);
+      setLoaded(false); // 讓下一次 query 回來時重新把表單填成清空後的狀態
+      setForm((p) => ({ ...p, smtpPass: "", m365ClientSecret: "" }));
+      invalidateConfig();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "重設失敗"),
+  });
+
+  const testMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ ok: boolean; message: string }>(`${basePath}/test`, {
+        method: "POST",
+        token: auth.token,
+        body: {
+          authMethod: form.authMethod,
+          smtpHost: form.smtpHost,
+          smtpPort: form.smtpPort,
+          smtpSecure: form.smtpSecure,
+          smtpUser: form.smtpUser,
+          smtpAllowSelfSigned: form.smtpAllowSelfSigned,
+          ...(form.smtpPass ? { smtpPass: form.smtpPass } : {}),
+          m365TenantId: form.m365TenantId,
+          m365ClientId: form.m365ClientId,
+          m365FromAddress: form.m365FromAddress,
+          ...(form.m365ClientSecret ? { m365ClientSecret: form.m365ClientSecret } : {}),
+          ...(form.testRecipient ? { testRecipient: form.testRecipient } : {}),
+        },
+      }),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "測試失敗"),
+  });
+
+  if (isLoading) return <div className="p-4 text-sm text-muted-foreground">載入中…</div>;
+  if (isError || !config) return <div className="p-4 text-sm text-destructive">載入失敗，請重新整理再試一次</div>;
+
+  return (
+    <div className="space-y-4">
+      <h3 className="font-semibold">通知信寄信設定</h3>
+      <p className="text-xs text-muted-foreground">
+        這裡是這家公司自己專用的寄信設定，選填。留空不設定的話，申請單相關的 email 通知會用
+        服務供應商層級的預設寄信帳號寄出；只有想改用公司自己的郵件伺服器(或自己的 M365
+        帳號)寄信時，才需要在這裡設定。
+      </p>
+      {config.usingPlatformDefault ? (
+        <p className="rounded bg-slate-100 px-3 py-2 text-xs text-slate-600">
+          目前尚未設定專屬寄信方式，email 通知使用<strong>服務供應商的預設寄信帳號</strong>寄出。
+        </p>
+      ) : (
+        <p className="rounded bg-green-50 px-3 py-2 text-xs text-green-700">
+          目前使用<strong>這家公司自己設定的寄信帳號</strong>寄出 email 通知。
+        </p>
+      )}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <div className="space-y-3 rounded border p-4">
+        <div>
+          <Label>寄信方式</Label>
+          <div className="mt-1 flex gap-4 text-sm">
+            <label className="flex items-center gap-1.5">
+              <input type="radio" checked={!isM365} onChange={() => setForm((p) => ({ ...p, authMethod: "smtp" }))} />
+              SMTP 帳號密碼
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" checked={isM365} onChange={() => setForm((p) => ({ ...p, authMethod: "m365_oauth2" }))} />
+              Microsoft 365(OAuth2 應用程式權限)
+            </label>
+          </div>
+        </div>
+
+        {!isM365 && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>SMTP 主機</Label>
+                <Input value={form.smtpHost} onChange={(e) => setForm((p) => ({ ...p, smtpHost: e.target.value }))} placeholder="smtp.gmail.com" />
+              </div>
+              <div>
+                <Label>Port</Label>
+                <Input
+                  type="number"
+                  value={form.smtpPort}
+                  onChange={(e) => setForm((p) => ({ ...p, smtpPort: Number(e.target.value) }))}
+                />
+              </div>
+              <div>
+                <Label>使用者帳號</Label>
+                <Input value={form.smtpUser} onChange={(e) => setForm((p) => ({ ...p, smtpUser: e.target.value }))} placeholder="your-account@gmail.com" />
+              </div>
+              <div>
+                <Label>寄件人顯示(選填，留空用帳號本身)</Label>
+                <Input value={form.smtpFrom} onChange={(e) => setForm((p) => ({ ...p, smtpFrom: e.target.value }))} placeholder="expense-notice@your-domain.com" />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.smtpSecure}
+                onChange={(e) => setForm((p) => ({ ...p, smtpSecure: e.target.checked }))}
+              />
+              使用 SSL(通常 port 465 才需要勾選；587 用 STARTTLS 不用勾)
+            </label>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.smtpAllowSelfSigned}
+                onChange={(e) => setForm((p) => ({ ...p, smtpAllowSelfSigned: e.target.checked }))}
+              />
+              信任自我簽署/內部憑證
+            </label>
+            {form.smtpAllowSelfSigned && (
+              <p className="text-xs text-amber-600">
+                關閉後不會驗證郵件伺服器憑證的簽發者，只建議用在公司自己架設、內部網路可信任的
+                郵件主機——如果連線出現「unable to get local issuer certificate」通常就是這個
+                原因(自我簽署或內部 CA 簽發的憑證，不在 Node.js 內建的信任清單裡)。公開的服務
+                (Gmail、Outlook 等)不需要、也不應該勾選這個選項。
+              </p>
+            )}
+
+            <div>
+              <Label>密碼{config.hasSmtpPass ? "(已設定，留空表示不更換)" : "(尚未設定)"}</Label>
+              <Input
+                type="password"
+                value={form.smtpPass}
+                onChange={(e) => setForm((p) => ({ ...p, smtpPass: e.target.value }))}
+                placeholder="應用程式密碼，不是登入密碼(大部分服務商都是如此)"
+              />
+            </div>
+          </>
+        )}
+
+        {isM365 && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              需要公司自己的 IT 管理員先在 Azure AD 完成應用程式註冊，並對 Mail.Send 應用程式
+              權限做過「代表整個組織同意」，詳細步驟見系統的 README「通知信—Microsoft 365
+              OAuth2 設定教學」。跟 SMTP 不同，這裡不需要任何一個真人帳號的密碼，是應用程式
+              自己代表整個租戶取得授權。
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Tenant ID</Label>
+                <Input
+                  value={form.m365TenantId}
+                  onChange={(e) => setForm((p) => ({ ...p, m365TenantId: e.target.value }))}
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                />
+              </div>
+              <div>
+                <Label>Client ID(應用程式 ID)</Label>
+                <Input
+                  value={form.m365ClientId}
+                  onChange={(e) => setForm((p) => ({ ...p, m365ClientId: e.target.value }))}
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label>寄件人信箱(需為公司自己租戶中實際存在的信箱)</Label>
+                <Input
+                  value={form.m365FromAddress}
+                  onChange={(e) => setForm((p) => ({ ...p, m365FromAddress: e.target.value }))}
+                  placeholder="notify@your-company.com"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Client Secret{config.hasM365ClientSecret ? "(已設定，留空表示不更換)" : "(尚未設定)"}</Label>
+              <Input
+                type="password"
+                value={form.m365ClientSecret}
+                onChange={(e) => setForm((p) => ({ ...p, m365ClientSecret: e.target.value }))}
+                placeholder="Azure AD 應用程式的 client secret 值"
+              />
+            </div>
+          </>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            {saveMutation.isPending ? "儲存中…" : "儲存設定"}
+          </Button>
+          {!config.usingPlatformDefault && (
+            <Button
+              variant="outline"
+              onClick={() => resetMutation.mutate()}
+              disabled={resetMutation.isPending}
+            >
+              {resetMutation.isPending ? "清除中…" : "清除設定，改用預設值"}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded border p-4">
+        <Label>測試連線(選填收件信箱，留空只測連線帳密)</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            className="max-w-xs"
+            value={form.testRecipient}
+            onChange={(e) => setForm((p) => ({ ...p, testRecipient: e.target.value }))}
+            placeholder="test@example.com"
+          />
+          <Button variant="outline" onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
+            {testMutation.isPending ? "測試中…" : "測試連線"}
+          </Button>
+        </div>
+        {testMutation.data && (
+          <p className={`text-sm ${testMutation.data.ok ? "text-green-600" : "text-destructive"}`}>{testMutation.data.message}</p>
+        )}
+      </div>
+    </div>
+  );
+}

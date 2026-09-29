@@ -45,3 +45,22 @@ export interface ReportSummary {
   byStatus: { status: string; totalTWD: number; count: number }[];
   monthlyTrend: { month: string; totalTWD: number }[];
 }
+
+// 租戶自己的寄信設定——跟 src/types/platform.ts 的 NotificationConfig 形狀一樣，
+// 只多一個 usingPlatformDefault：這家公司目前有沒有真的在用自己的設定，還是
+// 退回平台層級的預設值(多數租戶一開始都是這個狀態)。
+export interface CompanyNotificationConfig {
+  authMethod: "smtp" | "m365_oauth2";
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpFrom: string;
+  smtpAllowSelfSigned: boolean;
+  hasSmtpPass: boolean;
+  m365TenantId: string;
+  m365ClientId: string;
+  m365FromAddress: string;
+  hasM365ClientSecret: boolean;
+  usingPlatformDefault: boolean;
+}

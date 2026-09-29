@@ -50,7 +50,7 @@ async function notify(params: {
     linkUrl,
   });
 
-  await Promise.allSettled(recipients.map((r) => sendMail({ to: r.email, subject: title, text, html })));
+  await Promise.allSettled(recipients.map((r) => sendMail({ to: r.email, subject: title, text, html, companyId })));
 }
 
 // 某個簽核關卡的角色(roleKey)在這家公司裡實際對應到的使用者——可能不只一人

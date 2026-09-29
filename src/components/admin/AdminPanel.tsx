@@ -5,6 +5,7 @@ import { ExchangeRateManager } from "@/components/admin/ExchangeRateManager";
 import { UserManager } from "@/components/admin/UserManager";
 import { CustomFieldManager } from "@/components/admin/CustomFieldManager";
 import { CategoryCustomFieldLinks } from "@/components/admin/CategoryCustomFieldLinks";
+import { CompanyNotificationSettings } from "@/components/admin/CompanyNotificationSettings";
 import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 import type { AuthState } from "@/types/auth";
 
@@ -46,6 +47,9 @@ export function AdminPanel({ auth }: { auth: AuthState }) {
       </div>
       <div className="rounded-lg border bg-white p-6">
         <UserManager auth={auth} />
+      </div>
+      <div className="rounded-lg border bg-white p-6">
+        <CompanyNotificationSettings auth={auth} />
       </div>
     </div>
   );
