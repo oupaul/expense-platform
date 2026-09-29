@@ -22,6 +22,19 @@ function formatTWD(value: number): string {
   return `${value.toLocaleString("zh-TW")} TWD`;
 }
 
+// 同一個申請人在「各申請人月度申請金額」樞紐表裡可能有好幾列(不同費用性質)，後端
+// 已經把同一人的列排在一起——這裡算出每組的起始列要 rowSpan 幾列，讓申請人姓名用
+// 真正的合併儲存格垂直置中顯示，而不是接續列留空白(那樣看起來會像是資料缺漏，
+// 不容易一眼看出是「同一人」)。
+function withApplicantRowSpan<T extends { applicantId: string }>(rows: T[]): { row: T; applicantRowSpan: number | null }[] {
+  return rows.map((row, idx) => {
+    if (rows[idx - 1]?.applicantId === row.applicantId) return { row, applicantRowSpan: null };
+    let span = 1;
+    while (rows[idx + span]?.applicantId === row.applicantId) span++;
+    return { row, applicantRowSpan: span };
+  });
+}
+
 // recharts 在這個專案的建置環境下實測有兩個獨立的渲染缺陷：
 // 1. <Bar>/<BarChart>：無論資料內容，<g class="recharts-bar-rectangle"> 底下永遠是空的，
 //    完全畫不出長條形狀(v2、v3 都一樣)。
@@ -210,24 +223,22 @@ export function ReportsView({ auth }: { auth: AuthState }) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.byApplicantMonthly.map((row, idx) => {
-                    // 同一個申請人可能有好幾列(不同費用性質)，後端已經把同一人的列排在
-                    // 一起，這裡只在「換人」的第一列顯示姓名，接續的列留空——視覺上像
-                    // 試算表的分組表頭，不用每一列都重複印同樣的名字。
-                    const sameApplicantAsPrev = data.byApplicantMonthly[idx - 1]?.applicantId === row.applicantId;
-                    return (
-                      <TableRow key={`${row.applicantId}-${row.expenseNatureId ?? "none"}`}>
-                        <TableCell className="font-medium">{sameApplicantAsPrev ? "" : row.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{row.expenseNatureName}</TableCell>
-                        {data.months.map((month) => (
-                          <TableCell key={month} className="text-right">
-                            {row.monthlyTotals[month] ? formatTWD(row.monthlyTotals[month]) : "-"}
-                          </TableCell>
-                        ))}
-                        <TableCell className="text-right font-medium">{formatTWD(row.totalTWD)}</TableCell>
-                      </TableRow>
-                    );
-                  })}
+                  {withApplicantRowSpan(data.byApplicantMonthly).map(({ row, applicantRowSpan }) => (
+                    <TableRow key={`${row.applicantId}-${row.expenseNatureId ?? "none"}`}>
+                      {applicantRowSpan !== null && (
+                        <TableCell rowSpan={applicantRowSpan} className="align-top font-medium">
+                          {row.name}
+                        </TableCell>
+                      )}
+                      <TableCell className="text-muted-foreground">{row.expenseNatureName}</TableCell>
+                      {data.months.map((month) => (
+                        <TableCell key={month} className="text-right">
+                          {row.monthlyTotals[month] ? formatTWD(row.monthlyTotals[month]) : "-"}
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-right font-medium">{formatTWD(row.totalTWD)}</TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             )}
