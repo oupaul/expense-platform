@@ -10,79 +10,47 @@ interface Props {
   onDelete?: (attachmentId: string) => void;
 }
 
-// 圖片檢視器的畫面(工具列 + 可旋轉的圖片)，用 DOM API 組出來而不是塞一大串 HTML 字串——
-// 檔名是申請人自己上傳附件時填的、不是這個系統的內容，直接組字串塞進 innerHTML 的話，
-// 惡意檔名可以在審核者開啟附件時跑進審核者的瀏覽器分頁執行；用 createElement/textContent
-// 完全不會有這個問題，不管檔名塞了什麼字元都只會被當成純文字顯示。
-function buildImageViewer(win: Window, filename: string, imageUrl: string) {
-  win.document.title = filename;
-  win.document.body.innerHTML = "";
-  win.document.body.style.cssText = "margin:0;background:#111;height:100vh;display:flex;flex-direction:column;font-family:sans-serif;";
-
-  const toolbar = win.document.createElement("div");
-  toolbar.style.cssText = "display:flex;gap:8px;padding:8px;background:#222;flex-shrink:0;";
-
-  const rotateLeftBtn = win.document.createElement("button");
-  rotateLeftBtn.textContent = "↺ 向左旋轉";
-  const rotateRightBtn = win.document.createElement("button");
-  rotateRightBtn.textContent = "↻ 向右旋轉";
-  for (const btn of [rotateLeftBtn, rotateRightBtn]) {
-    btn.style.cssText = "padding:6px 12px;cursor:pointer;";
-  }
-  toolbar.append(rotateLeftBtn, rotateRightBtn);
-
-  const viewer = win.document.createElement("div");
-  viewer.style.cssText = "flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;";
-
-  const img = win.document.createElement("img");
-  img.src = imageUrl;
-  img.alt = filename;
-  img.style.cssText = "max-width:90%;max-height:90%;transition:transform 0.15s;";
-
-  viewer.appendChild(img);
-  win.document.body.append(toolbar, viewer);
-
-  let rotation = 0;
-  const applyRotation = () => {
-    img.style.transform = `rotate(${rotation}deg)`;
-  };
-  rotateLeftBtn.onclick = () => {
-    rotation -= 90;
-    applyRotation();
-  };
-  rotateRightBtn.onclick = () => {
-    rotation += 90;
-    applyRotation();
-  };
-}
-
-// 憑證附件清單：PDF 點了開新分頁用瀏覽器原生檢視器；圖片點了也是開獨立視窗(不是蓋住
-// 整個審核明細版面的全螢幕遮罩)，並且多做了旋轉功能——附件很常是手機直接拍照上傳、
-// 方向沒轉正，審核者自己在檢視器裡轉正比較實際，不用要求申請人重新上傳。
-// 兩種情境都是先把檔案(帶登入 token)拉成本機 blob: URL 再顯示，不會把 token 暴露在網址上。
+// 憑證附件清單：PDF 點了開新分頁用瀏覽器原生檢視器；圖片改成「就地展開」，直接在
+// 這塊區域下方顯示，不開新視窗、也不是蓋住整頁的全螢幕遮罩。原本試過開獨立視窗
+// (window.open)，但實測發現部分瀏覽器的快顯封鎖設定即使在使用者點擊當下同步呼叫
+// 還是會擋下來(不同瀏覽器/使用者設定的判斷標準不一，不能假設一定放行)，就地展開
+// 完全不受這個問題影響——代價是展開後會把下面的簽核進度往下推，但比起開不出視窗、
+// 整個功能失效更可靠。多加了旋轉功能，手機拍照上傳常常方向沒轉正，審核者在這裡
+// 就能自己轉正看，不用要求申請人重新上傳。
 export function AttachmentList({ auth, applicationId, attachments, onDelete }: Props) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [rotation, setRotation] = useState(0);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const collapse = () => {
+    setExpandedId(null);
+    setImageUrl(null);
+  };
+
   const open = async (att: AttachmentMeta) => {
     setError(null);
-    // 圖片用的新視窗要在使用者點擊當下、還沒 await 之前就同步開好——瀏覽器的快顯封鎖
-    // 通常只放行「使用者點擊那一刻」直接呼叫的 window.open，中間先 await 抓完圖檔資料
-    // 再開窗的話，很容易被判定成不是使用者主動觸發而被擋掉。先開一個空視窗顯示「載入中」，
-    // 圖檔抓回來後再把內容填進去。
-    const isPdf = att.mimeType === "application/pdf";
-    const win = isPdf ? null : window.open("", "_blank", "noopener,width=1000,height=800");
-    if (!isPdf && !win) {
-      setError("彈出視窗被瀏覽器擋住，請允許彈出視窗後再試一次");
+    if (att.mimeType === "application/pdf") {
+      setLoadingId(att.id);
+      try {
+        const url = await apiFetchBlobUrl(
+          `/companies/${auth.user.companyId}/applications/${applicationId}/attachments/${att.id}`,
+          auth.token
+        );
+        window.open(url, "_blank", "noopener");
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "附件載入失敗");
+      } finally {
+        setLoadingId(null);
+      }
       return;
     }
-    if (win) {
-      win.document.title = att.filename;
-      win.document.body.style.cssText = "margin:0;background:#111;height:100vh;";
-      const loadingText = win.document.createElement("p");
-      loadingText.textContent = "圖片載入中…";
-      loadingText.style.cssText = "color:#fff;text-align:center;margin-top:40px;font-family:sans-serif;";
-      win.document.body.appendChild(loadingText);
+
+    // 圖片：再點一次同一個附件就收合，避免使用者搞不清楚「怎麼點都沒反應」。
+    if (expandedId === att.id) {
+      collapse();
+      return;
     }
 
     setLoadingId(att.id);
@@ -91,24 +59,19 @@ export function AttachmentList({ auth, applicationId, attachments, onDelete }: P
         `/companies/${auth.user.companyId}/applications/${applicationId}/attachments/${att.id}`,
         auth.token
       );
-      if (isPdf) {
-        window.open(url, "_blank", "noopener");
-        return;
-      }
-      if (!win || win.closed) {
-        setError("彈出視窗已關閉，請重新點一次附件");
-        return;
-      }
-      buildImageViewer(win, att.filename, url);
+      setExpandedId(att.id);
+      setImageUrl(url);
+      setRotation(0);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "附件載入失敗");
-      win?.close();
     } finally {
       setLoadingId(null);
     }
   };
 
   if (attachments.length === 0) return null;
+
+  const expandedAttachment = attachments.find((a) => a.id === expandedId);
 
   return (
     <div className="space-y-2">
@@ -137,6 +100,44 @@ export function AttachmentList({ auth, applicationId, attachments, onDelete }: P
           </div>
         ))}
       </div>
+      {expandedAttachment && imageUrl && (
+        <div className="space-y-2 rounded border bg-slate-900 p-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-white">{expandedAttachment.filename}</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded bg-slate-700 px-2 py-1 text-xs text-white hover:bg-slate-600"
+                onClick={() => setRotation((r) => r - 90)}
+              >
+                ↺ 向左旋轉
+              </button>
+              <button
+                type="button"
+                className="rounded bg-slate-700 px-2 py-1 text-xs text-white hover:bg-slate-600"
+                onClick={() => setRotation((r) => r + 90)}
+              >
+                ↻ 向右旋轉
+              </button>
+              <button
+                type="button"
+                className="rounded bg-slate-700 px-2 py-1 text-xs text-white hover:bg-slate-600"
+                onClick={collapse}
+              >
+                收合
+              </button>
+            </div>
+          </div>
+          <div className="flex max-h-[70vh] items-center justify-center overflow-auto">
+            <img
+              src={imageUrl}
+              alt={expandedAttachment.filename}
+              className="max-h-[65vh] max-w-full object-contain transition-transform duration-150"
+              style={{ transform: `rotate(${rotation}deg)` }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
