@@ -130,6 +130,7 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
           <TableHeader>
             <TableRow>
               <TableHead>費用項目</TableHead>
+              {printOptionalFields.projectCode && <TableHead>專案編號</TableHead>}
               <TableHead>說明</TableHead>
               {detailCustomFields.map((field) => (
                 <TableHead key={field.id}>{field.name}</TableHead>
@@ -143,6 +144,7 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
             {data.items.map((item) => (
               <TableRow key={item.id}>
                 <TableCell>{item.category.name}</TableCell>
+                {printOptionalFields.projectCode && <TableCell>{item.projectCode ?? "-"}</TableCell>}
                 <TableCell>{item.description ?? "-"}</TableCell>
                 {detailCustomFields.map((field) => (
                   <TableCell key={field.id}>{item.customFieldValues?.[field.id] || "-"}</TableCell>
