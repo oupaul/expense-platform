@@ -112,6 +112,18 @@ async function sendMailViaM365Graph(
   }
 }
 
+// nodemailer 丟出來的錯誤訊息本身(err.message)常常語意模糊(例如「Greeting never
+// received」)，真正能判斷問題類型的是 err.code：ETIMEDOUT/ESOCKET/ECONNECTION 這類
+// 通常代表連不到主機、port 被防火牆擋住，或 TLS 交握失敗(port 跟「使用 SSL」設定接反)；
+// EAUTH 才是帳號密碼真的錯。把 code 一起顯示出來，不用再另外看伺服器 log 猜是哪一種。
+function formatMailError(err: unknown): string {
+  if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code ? `${err.message}(錯誤代碼：${code})` : err.message;
+  }
+  return "連線失敗";
+}
+
 // 平台管理頁面「測試連線」用：帳密可能是使用者剛打在表單裡、還沒存檔的新值，
 // 也可能沒帶(表示要用資料庫裡已經存的舊密碼重測)，兩種情況呼叫端都先解出一個
 // passEnc 再傳進來，這支函式本身不用關心密碼是新是舊。
@@ -131,6 +143,12 @@ export async function testSmtpConnection(params: {
       secure: params.secure,
       auth: { user: params.user, pass: decryptSecret(params.passEnc) },
       tls: { rejectUnauthorized: !params.allowSelfSigned },
+      // 「測試連線」是使用者按了按鈕在等結果，主機/port 真的連不上的話(防火牆擋住、
+      // port 打錯)，不該讓他等到 nodemailer 預設的逾時時間才知道——明確設短一點，
+      // 10 秒內連不上就直接回報失敗。
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 10_000,
     });
     await transporter.verify();
     if (params.testRecipient) {
@@ -144,7 +162,7 @@ export async function testSmtpConnection(params: {
     }
     return { ok: true, message: "連線成功，SMTP 帳密正確" };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : "連線失敗" };
+    return { ok: false, message: formatMailError(err) };
   }
 }
 
