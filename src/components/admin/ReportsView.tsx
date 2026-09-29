@@ -200,6 +200,7 @@ export function ReportsView({ auth }: { auth: AuthState }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>申請人</TableHead>
+                    <TableHead>費用性質</TableHead>
                     {data.months.map((month) => (
                       <TableHead key={month} className="text-right">
                         {month}
@@ -209,17 +210,24 @@ export function ReportsView({ auth }: { auth: AuthState }) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.byApplicantMonthly.map((row) => (
-                    <TableRow key={row.applicantId}>
-                      <TableCell>{row.name}</TableCell>
-                      {data.months.map((month) => (
-                        <TableCell key={month} className="text-right">
-                          {row.monthlyTotals[month] ? formatTWD(row.monthlyTotals[month]) : "-"}
-                        </TableCell>
-                      ))}
-                      <TableCell className="text-right font-medium">{formatTWD(row.totalTWD)}</TableCell>
-                    </TableRow>
-                  ))}
+                  {data.byApplicantMonthly.map((row, idx) => {
+                    // 同一個申請人可能有好幾列(不同費用性質)，後端已經把同一人的列排在
+                    // 一起，這裡只在「換人」的第一列顯示姓名，接續的列留空——視覺上像
+                    // 試算表的分組表頭，不用每一列都重複印同樣的名字。
+                    const sameApplicantAsPrev = data.byApplicantMonthly[idx - 1]?.applicantId === row.applicantId;
+                    return (
+                      <TableRow key={`${row.applicantId}-${row.expenseNatureId ?? "none"}`}>
+                        <TableCell className="font-medium">{sameApplicantAsPrev ? "" : row.name}</TableCell>
+                        <TableCell className="text-muted-foreground">{row.expenseNatureName}</TableCell>
+                        {data.months.map((month) => (
+                          <TableCell key={month} className="text-right">
+                            {row.monthlyTotals[month] ? formatTWD(row.monthlyTotals[month]) : "-"}
+                          </TableCell>
+                        ))}
+                        <TableCell className="text-right font-medium">{formatTWD(row.totalTWD)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}

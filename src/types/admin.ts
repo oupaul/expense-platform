@@ -46,7 +46,16 @@ export interface ReportSummary {
   monthlyTrend: { month: string; totalTWD: number }[];
   // 樞紐表欄位用的月份清單，跟 monthlyTrend 同一組(區間內有已核准申請單的月份)。
   months: string[];
-  byApplicantMonthly: { applicantId: string; name: string; monthlyTotals: Record<string, number>; totalTWD: number }[];
+  // 每列是「申請人 + 費用性質」的組合(同一人可能有好幾列，各是不同費用性質)，
+  // 已依申請人整體總額(高到低)、再依費用性質名稱排序。
+  byApplicantMonthly: {
+    applicantId: string;
+    name: string;
+    expenseNatureId: string | null;
+    expenseNatureName: string;
+    monthlyTotals: Record<string, number>;
+    totalTWD: number;
+  }[];
 }
 
 // 租戶自己的寄信設定——跟 src/types/platform.ts 的 NotificationConfig 形狀一樣，

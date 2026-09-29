@@ -62,7 +62,14 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
     }),
     prisma.expenseApplication.findMany({
       where: approvedWhere,
-      select: { applicantId: true, applicant: { select: { name: true } }, applicationDate: true, totalAmountTWD: true },
+      select: {
+        applicantId: true,
+        applicant: { select: { name: true } },
+        applicationDate: true,
+        totalAmountTWD: true,
+        expenseNatureId: true,
+        expenseNature: { select: { name: true } },
+      },
     }),
     prisma.expenseItem.groupBy({
       by: ["categoryId"],
@@ -100,18 +107,33 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
 
   // 月度趨勢直接在 JS 裡依 applicationDate 分月加總——單一租戶的申請單量級不大，
   // 不值得為了這個另外寫綁死 Postgres 方言的 date_trunc 查詢。同一輪迴圈順便依
-  // 申請人分組，做成「申請人 × 月份」的樞紐(byApplicantMonthly)，兩者是同一份
-  // 已核准申請單資料，沒必要分開查兩次。
+  // 「申請人 + 費用性質」分組，做成樞紐(byApplicantMonthly)，兩者是同一份
+  // 已核准申請單資料，沒必要分開查兩次。費用性質(報銷/預付/專案之類，每租戶
+  // 自己命名)分開顯示，是因為同一個人的「報銷」跟「預付」金額混在一起看，
+  // 對財務來說意義差很多(預付之後要沖帳，報銷是已經花掉的錢)。
   const monthlyMap = new Map<string, number>();
-  const applicantMonthlyMap = new Map<string, { name: string; monthlyTotals: Map<string, number> }>();
+  const applicantMonthlyMap = new Map<
+    string,
+    { applicantId: string; name: string; expenseNatureId: string | null; expenseNatureName: string; monthlyTotals: Map<string, number> }
+  >();
+  const applicantGrandTotal = new Map<string, number>();
   for (const app of approvedApps) {
     // 同上：已核准的申請單一定有 applicationDate，! 斷言安全。
     const month = app.applicationDate!.toISOString().slice(0, 7);
-    monthlyMap.set(month, (monthlyMap.get(month) ?? 0) + Number(app.totalAmountTWD));
+    const amount = Number(app.totalAmountTWD);
+    monthlyMap.set(month, (monthlyMap.get(month) ?? 0) + amount);
+    applicantGrandTotal.set(app.applicantId, (applicantGrandTotal.get(app.applicantId) ?? 0) + amount);
 
-    const entry = applicantMonthlyMap.get(app.applicantId) ?? { name: app.applicant.name, monthlyTotals: new Map<string, number>() };
-    entry.monthlyTotals.set(month, (entry.monthlyTotals.get(month) ?? 0) + Number(app.totalAmountTWD));
-    applicantMonthlyMap.set(app.applicantId, entry);
+    const natureKey = `${app.applicantId}|${app.expenseNatureId ?? "none"}`;
+    const entry = applicantMonthlyMap.get(natureKey) ?? {
+      applicantId: app.applicantId,
+      name: app.applicant.name,
+      expenseNatureId: app.expenseNatureId,
+      expenseNatureName: app.expenseNature?.name ?? "(未分類)",
+      monthlyTotals: new Map<string, number>(),
+    };
+    entry.monthlyTotals.set(month, (entry.monthlyTotals.get(month) ?? 0) + amount);
+    applicantMonthlyMap.set(natureKey, entry);
   }
   const monthlyTrend = Array.from(monthlyMap.entries())
     .map(([month, totalTWD]) => ({ month, totalTWD }))
@@ -120,15 +142,23 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
   // 當樞紐表的欄位標題，不用自己再重新算一次。
   const months = monthlyTrend.map((m) => m.month);
 
-  const byApplicantMonthly = Array.from(applicantMonthlyMap.entries())
-    .map(([applicantId, { name, monthlyTotals }]) => ({
-      applicantId,
-      name,
-      monthlyTotals: Object.fromEntries(monthlyTotals),
-      totalTWD: Array.from(monthlyTotals.values()).reduce((sum, v) => sum + v, 0),
+  const byApplicantMonthly = Array.from(applicantMonthlyMap.values())
+    .map((entry) => ({
+      applicantId: entry.applicantId,
+      name: entry.name,
+      expenseNatureId: entry.expenseNatureId,
+      expenseNatureName: entry.expenseNatureName,
+      monthlyTotals: Object.fromEntries(entry.monthlyTotals),
+      totalTWD: Array.from(entry.monthlyTotals.values()).reduce((sum, v) => sum + v, 0),
     }))
-    // 金額高到低排序，管理者一眼就能看出這個區間申請最多的人是誰。
-    .sort((a, b) => b.totalTWD - a.totalTWD);
+    // 先依「這個人整體申請總額」由高到低排序，讓同一個人的幾列(不同費用性質)
+    // 排在一起，也讓管理者一眼看出誰申請最多；同一人底下再依費用性質名稱排序。
+    .sort((a, b) => {
+      const grandDiff = (applicantGrandTotal.get(b.applicantId) ?? 0) - (applicantGrandTotal.get(a.applicantId) ?? 0);
+      if (grandDiff !== 0) return grandDiff;
+      if (a.applicantId !== b.applicantId) return a.applicantId.localeCompare(b.applicantId);
+      return a.expenseNatureName.localeCompare(b.expenseNatureName, "zh-Hant");
+    });
 
   res.json({
     range: { from: from.toISOString(), to: to.toISOString() },
