@@ -62,7 +62,7 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
     }),
     prisma.expenseApplication.findMany({
       where: approvedWhere,
-      select: { applicationDate: true, totalAmountTWD: true },
+      select: { applicantId: true, applicant: { select: { name: true } }, applicationDate: true, totalAmountTWD: true },
     }),
     prisma.expenseItem.groupBy({
       by: ["categoryId"],
@@ -99,16 +99,36 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
   }));
 
   // 月度趨勢直接在 JS 裡依 applicationDate 分月加總——單一租戶的申請單量級不大，
-  // 不值得為了這個另外寫綁死 Postgres 方言的 date_trunc 查詢。
+  // 不值得為了這個另外寫綁死 Postgres 方言的 date_trunc 查詢。同一輪迴圈順便依
+  // 申請人分組，做成「申請人 × 月份」的樞紐(byApplicantMonthly)，兩者是同一份
+  // 已核准申請單資料，沒必要分開查兩次。
   const monthlyMap = new Map<string, number>();
+  const applicantMonthlyMap = new Map<string, { name: string; monthlyTotals: Map<string, number> }>();
   for (const app of approvedApps) {
     // 同上：已核准的申請單一定有 applicationDate，! 斷言安全。
     const month = app.applicationDate!.toISOString().slice(0, 7);
     monthlyMap.set(month, (monthlyMap.get(month) ?? 0) + Number(app.totalAmountTWD));
+
+    const entry = applicantMonthlyMap.get(app.applicantId) ?? { name: app.applicant.name, monthlyTotals: new Map<string, number>() };
+    entry.monthlyTotals.set(month, (entry.monthlyTotals.get(month) ?? 0) + Number(app.totalAmountTWD));
+    applicantMonthlyMap.set(app.applicantId, entry);
   }
   const monthlyTrend = Array.from(monthlyMap.entries())
     .map(([month, totalTWD]) => ({ month, totalTWD }))
     .sort((a, b) => a.month.localeCompare(b.month));
+  // 月份欄位的清單跟月度趨勢圖共用同一組(區間內有已核准申請單的月份)，前端拿這組
+  // 當樞紐表的欄位標題，不用自己再重新算一次。
+  const months = monthlyTrend.map((m) => m.month);
+
+  const byApplicantMonthly = Array.from(applicantMonthlyMap.entries())
+    .map(([applicantId, { name, monthlyTotals }]) => ({
+      applicantId,
+      name,
+      monthlyTotals: Object.fromEntries(monthlyTotals),
+      totalTWD: Array.from(monthlyTotals.values()).reduce((sum, v) => sum + v, 0),
+    }))
+    // 金額高到低排序，管理者一眼就能看出這個區間申請最多的人是誰。
+    .sort((a, b) => b.totalTWD - a.totalTWD);
 
   res.json({
     range: { from: from.toISOString(), to: to.toISOString() },
@@ -116,6 +136,8 @@ reportsRouter.get("/summary", async (req: CompanyScoped, res) => {
     byCategory,
     byStatus,
     monthlyTrend,
+    months,
+    byApplicantMonthly,
   });
 });
 

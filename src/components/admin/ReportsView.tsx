@@ -4,6 +4,7 @@ import { ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, L
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch, apiFetchBlobUrl, ApiError } from "@/lib/api";
 import type { AuthState } from "@/types/auth";
 import type { ReportSummary } from "@/types/admin";
@@ -187,6 +188,40 @@ export function ReportsView({ auth }: { auth: AuthState }) {
                   <Line type="monotone" dataKey="totalTWD" stroke={CHART_COLORS[2]} strokeWidth={2} dot />
                 </LineChart>
               </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="rounded border bg-white p-4 md:col-span-2">
+            <h2 className="mb-3 font-semibold">各申請人月度申請金額(已核准)</h2>
+            {data.byApplicantMonthly.length === 0 ? (
+              <p className="p-8 text-center text-sm text-muted-foreground">此區間沒有已核准的申請單</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>申請人</TableHead>
+                    {data.months.map((month) => (
+                      <TableHead key={month} className="text-right">
+                        {month}
+                      </TableHead>
+                    ))}
+                    <TableHead className="text-right">總計</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.byApplicantMonthly.map((row) => (
+                    <TableRow key={row.applicantId}>
+                      <TableCell>{row.name}</TableCell>
+                      {data.months.map((month) => (
+                        <TableCell key={month} className="text-right">
+                          {row.monthlyTotals[month] ? formatTWD(row.monthlyTotals[month]) : "-"}
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-right font-medium">{formatTWD(row.totalTWD)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </div>
         </div>

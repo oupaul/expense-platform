@@ -44,6 +44,9 @@ export interface ReportSummary {
   byCategory: { categoryId: string; name: string; totalTWD: number; count: number }[];
   byStatus: { status: string; totalTWD: number; count: number }[];
   monthlyTrend: { month: string; totalTWD: number }[];
+  // 樞紐表欄位用的月份清單，跟 monthlyTrend 同一組(區間內有已核准申請單的月份)。
+  months: string[];
+  byApplicantMonthly: { applicantId: string; name: string; monthlyTotals: Record<string, number>; totalTWD: number }[];
 }
 
 // 租戶自己的寄信設定——跟 src/types/platform.ts 的 NotificationConfig 形狀一樣，
