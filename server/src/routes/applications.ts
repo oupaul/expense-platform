@@ -323,22 +323,24 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
   res.status(201).json(application);
 });
 
-// GET /api/companies/:companyId/applications?scope=mine|pending|all
+// GET /api/companies/:companyId/applications?scope=mine|pending|reviewed|all
 applicationsRouter.get("/", async (req: CompanyScoped, res) => {
-  const scope = req.query.scope === "pending" || req.query.scope === "all" ? req.query.scope : "mine";
+  const scope = ["pending", "reviewed", "all"].includes(req.query.scope as string)
+    ? (req.query.scope as "pending" | "reviewed" | "all")
+    : "mine";
   const auth = req.auth!;
 
   if (scope === "all" && auth.role !== "admin" && !auth.canViewAllReports) {
     return res.status(403).json({ error: "沒有查看全部申請單的權限" });
   }
 
-  // scope=all/pending 刻意排除草稿——那是給「看公司整體業務量」用的，草稿還沒真的
+  // scope=all/pending/reviewed 刻意排除草稿——那是給「看公司整體業務量」用的，草稿還沒真的
   // 進入簽核流程，也是使用者自己還沒寫完的內容，不該被別人(即使是查看全公司報表的人)
   // 在這裡看到。scope=mine 不用另外擋，本來就只回自己的資料，看到自己的草稿是應該的。
   const where =
     scope === "mine"
       ? { companyId: req.params.companyId, applicantId: auth.userId }
-      : { companyId: req.params.companyId, status: { not: "draft" } }; // all/pending 都要排除草稿，pending 再用程式篩選當前關卡
+      : { companyId: req.params.companyId, status: { not: "draft" } }; // all/pending/reviewed 都要排除草稿，pending/reviewed 再用程式篩選
 
   const applications = await prisma.expenseApplication.findMany({
     where,
@@ -350,17 +352,27 @@ applicationsRouter.get("/", async (req: CompanyScoped, res) => {
     orderBy: { createdAt: "desc" },
   });
 
-  if (scope !== "pending") {
-    return res.json(applications);
+  if (scope === "pending") {
+    // pending：只回傳「目前輪到我這個角色簽核」的申請單 —— 前面關卡都還沒過的不算輪到我。
+    return res.json(
+      applications.filter((app) => {
+        if (app.status !== "pending") return false;
+        const currentStage = app.approvalRecords.find((r) => r.status === "waiting");
+        return currentStage?.stage.roleKey === auth.role;
+      })
+    );
   }
 
-  // pending：只回傳「目前輪到我這個角色簽核」的申請單 —— 前面關卡都還沒過的不算輪到我。
-  const pending = applications.filter((app) => {
-    if (app.status !== "pending") return false;
-    const currentStage = app.approvalRecords.find((r) => r.status === "waiting");
-    return currentStage?.stage.roleKey === auth.role;
-  });
-  res.json(pending);
+  if (scope === "reviewed") {
+    // reviewed：這個人自己實際簽過(核准/駁回/退回)過的申請單，不看目前狀態、也不管
+    // 後面幾關後來又發生了什麼——approvalRecords 上真的留了 approverId 是這個人才算，
+    // 跟 pending 用「角色」比對不同，這裡要精準到「我這個人親自簽過」，避免同角色
+    // 換了別人接手也算進自己的簽核紀錄。已退回的申請單如果被重新送出、走過同一關，
+    // 這個人可能對同一張單留下不只一筆紀錄，前端用申請單 id 去重就好，這裡不用特別處理。
+    return res.json(applications.filter((app) => app.approvalRecords.some((r) => r.approverId === auth.userId)));
+  }
+
+  res.json(applications);
 });
 
 // GET /api/companies/:companyId/applications/:id

@@ -4,7 +4,7 @@
 export interface ApplicationAccessCheck {
   status: string;
   applicantId: string;
-  approvalRecords: { status: string; stage: { roleKey: string; stageOrder: number } }[];
+  approvalRecords: { status: string; approverId: string | null; stage: { roleKey: string; stageOrder: number } }[];
 }
 
 export interface ApplicationAccessAuth {
@@ -37,5 +37,8 @@ export function canViewApplication(application: ApplicationAccessCheck, auth: Ap
   // PendingApprovals 的「查看明細並簽核」一定要先看得到完整內容才能決定核准/駁回/退回，
   // 一旦這一關輪過去，這個角色就不再是「目前的簽核者」，也就不再需要(也不該)繼續看到。
   const isCurrentApprover = currentRecord?.stage.roleKey === auth.role;
-  return isOwner || isAdmin || auth.canViewAllReports || isCurrentApprover;
+  // 已經親自簽過這張單的人(不管是不是還輪到他這個角色)——「已簽核」清單要能點進去
+  // 看明細，不能因為這一關輪過去了就跟著收回權限，不然使用者自己簽過的東西事後反而看不到。
+  const hasReviewed = application.approvalRecords.some((r) => r.approverId === auth.userId);
+  return isOwner || isAdmin || auth.canViewAllReports || isCurrentApprover || hasReviewed;
 }
