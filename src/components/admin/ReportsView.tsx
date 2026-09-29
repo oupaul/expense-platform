@@ -226,7 +226,7 @@ export function ReportsView({ auth }: { auth: AuthState }) {
                   {withApplicantRowSpan(data.byApplicantMonthly).map(({ row, applicantRowSpan }) => (
                     <TableRow key={`${row.applicantId}-${row.expenseNatureId ?? "none"}`}>
                       {applicantRowSpan !== null && (
-                        <TableCell rowSpan={applicantRowSpan} className="align-top font-medium">
+                        <TableCell rowSpan={applicantRowSpan} className="align-middle font-medium">
                           {row.name}
                         </TableCell>
                       )}
