@@ -592,6 +592,31 @@ bash server/scripts/restore.sh 20260101-030000
   執行時 npm 相關步驟要切換身分的問題(見上面「更新」章節)，但 git 那幾步刻意維持用
   誰執行就用誰的身分，不會、也不應該擅自幫你切換，所以手動下 git 指令時還是要自己
   留意身分，最保險的做法是固定用服務帳號登入操作、避免用 root。
+- **重新執行 `install.sh` 失敗**(常見兩種症狀：`git clone` 一開始就報
+  `already exists and is not an empty directory`；或整支腳本一路跑到 `prisma migrate
+  deploy` 才失敗，錯誤訊息是資料庫認證/連線失敗)：`install.sh` 假設是全新主機，不是
+  拿來對已經裝過(甚至上次半途失敗)的環境重跑——PostgreSQL 使用者/資料庫如果已存在會
+  跳過建立、**不會改密碼**，但如果 `server/.env` 這次被重新產生，腳本會另外生一組
+  全新的隨機密碼寫進去，跟舊使用者實際的密碼對不起來，後面 migrate 就會失敗。
+  要重新安裝，請先完整清掉上一次留下的東西再重來：
+  ```bash
+  sudo systemctl stop expense-platform-api 2>/dev/null
+  sudo systemctl disable expense-platform-api 2>/dev/null
+  sudo rm -f /etc/systemd/system/expense-platform-api.service
+  sudo systemctl daemon-reload
+  sudo rm -f /etc/nginx/sites-enabled/expense-platform /etc/nginx/sites-available/expense-platform
+  sudo systemctl reload nginx
+  sudo rm -rf /srv/apps/expense-platform
+  ```
+  如果上一次留下的 PostgreSQL 資料庫/使用者裡面沒有需要保留的資料，先用
+  `sudo -u postgres psql -l` 確認過，再一併清掉(資料庫名稱/使用者請照實際安裝時
+  輸入的值調整，預設是 `expense_platform_prod`/`expense_app`)：
+  ```bash
+  sudo -u postgres psql -c "DROP DATABASE IF EXISTS expense_platform_prod;"
+  sudo -u postgres psql -c "DROP USER IF EXISTS expense_app;"
+  ```
+  清乾淨之後再重新 `git clone <repo 網址> /srv/apps/expense-platform`，接著
+  `cd /srv/apps/expense-platform && sudo bash server/scripts/install.sh` 從頭跑一次。
 
 ---
 
