@@ -150,6 +150,46 @@ export function ReportsView({ auth }: { auth: AuthState }) {
 
       {data && (
         <div className="grid gap-6 md:grid-cols-2">
+          <div className="rounded border bg-white p-4 md:col-span-2">
+            <h2 className="mb-3 font-semibold">各申請人月度申請金額(已核准)</h2>
+            {data.byApplicantMonthly.length === 0 ? (
+              <p className="p-8 text-center text-sm text-muted-foreground">此區間沒有已核准的申請單</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>申請人</TableHead>
+                    <TableHead>費用性質</TableHead>
+                    {data.months.map((month) => (
+                      <TableHead key={month} className="text-right">
+                        {month}
+                      </TableHead>
+                    ))}
+                    <TableHead className="text-right">總計</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {withApplicantRowSpan(data.byApplicantMonthly).map(({ row, applicantRowSpan }) => (
+                    <TableRow key={`${row.applicantId}-${row.expenseNatureId ?? "none"}`}>
+                      {applicantRowSpan !== null && (
+                        <TableCell rowSpan={applicantRowSpan} className="align-middle font-medium">
+                          {row.name}
+                        </TableCell>
+                      )}
+                      <TableCell className="text-muted-foreground">{row.expenseNatureName}</TableCell>
+                      {data.months.map((month) => (
+                        <TableCell key={month} className="text-right">
+                          {row.monthlyTotals[month] ? formatTWD(row.monthlyTotals[month]) : "-"}
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-right font-medium">{formatTWD(row.totalTWD)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+
           <div className="rounded border bg-white p-4">
             <h2 className="mb-3 font-semibold">各部門支出(已核准)</h2>
             {data.byDepartment.length === 0 ? (
@@ -201,46 +241,6 @@ export function ReportsView({ auth }: { auth: AuthState }) {
                   <Line type="monotone" dataKey="totalTWD" stroke={CHART_COLORS[2]} strokeWidth={2} dot />
                 </LineChart>
               </ResponsiveContainer>
-            )}
-          </div>
-
-          <div className="rounded border bg-white p-4 md:col-span-2">
-            <h2 className="mb-3 font-semibold">各申請人月度申請金額(已核准)</h2>
-            {data.byApplicantMonthly.length === 0 ? (
-              <p className="p-8 text-center text-sm text-muted-foreground">此區間沒有已核准的申請單</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>申請人</TableHead>
-                    <TableHead>費用性質</TableHead>
-                    {data.months.map((month) => (
-                      <TableHead key={month} className="text-right">
-                        {month}
-                      </TableHead>
-                    ))}
-                    <TableHead className="text-right">總計</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {withApplicantRowSpan(data.byApplicantMonthly).map(({ row, applicantRowSpan }) => (
-                    <TableRow key={`${row.applicantId}-${row.expenseNatureId ?? "none"}`}>
-                      {applicantRowSpan !== null && (
-                        <TableCell rowSpan={applicantRowSpan} className="align-middle font-medium">
-                          {row.name}
-                        </TableCell>
-                      )}
-                      <TableCell className="text-muted-foreground">{row.expenseNatureName}</TableCell>
-                      {data.months.map((month) => (
-                        <TableCell key={month} className="text-right">
-                          {row.monthlyTotals[month] ? formatTWD(row.monthlyTotals[month]) : "-"}
-                        </TableCell>
-                      ))}
-                      <TableCell className="text-right font-medium">{formatTWD(row.totalTWD)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
             )}
           </div>
         </div>
