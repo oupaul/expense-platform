@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { apiFetchBlobUrl, ApiError } from "@/lib/api";
+import { ImageViewer } from "@/components/ImageViewer";
 import type { AuthState } from "@/types/auth";
 import type { AttachmentMeta } from "@/types/application";
 
@@ -15,12 +16,11 @@ interface Props {
 // (window.open)，但實測發現部分瀏覽器的快顯封鎖設定即使在使用者點擊當下同步呼叫
 // 還是會擋下來(不同瀏覽器/使用者設定的判斷標準不一，不能假設一定放行)，就地展開
 // 完全不受這個問題影響——代價是展開後會把下面的簽核進度往下推，但比起開不出視窗、
-// 整個功能失效更可靠。多加了旋轉功能，手機拍照上傳常常方向沒轉正，審核者在這裡
-// 就能自己轉正看，不用要求申請人重新上傳。
+// 整個功能失效更可靠。檢視器(ImageViewer)支援旋轉(手機拍照上傳常常方向沒轉正，審核者
+// 能自己轉正看，不用要求申請人重新上傳)與縮放/平移(看發票小字)。
 export function AttachmentList({ auth, applicationId, attachments, onDelete }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [rotation, setRotation] = useState(0);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +61,6 @@ export function AttachmentList({ auth, applicationId, attachments, onDelete }: P
       );
       setExpandedId(att.id);
       setImageUrl(url);
-      setRotation(0);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "附件載入失敗");
     } finally {
@@ -101,42 +100,7 @@ export function AttachmentList({ auth, applicationId, attachments, onDelete }: P
         ))}
       </div>
       {expandedAttachment && imageUrl && (
-        <div className="space-y-2 rounded border bg-slate-900 p-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-white">{expandedAttachment.filename}</span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="rounded bg-slate-700 px-2 py-1 text-xs text-white hover:bg-slate-600"
-                onClick={() => setRotation((r) => r - 90)}
-              >
-                ↺ 向左旋轉
-              </button>
-              <button
-                type="button"
-                className="rounded bg-slate-700 px-2 py-1 text-xs text-white hover:bg-slate-600"
-                onClick={() => setRotation((r) => r + 90)}
-              >
-                ↻ 向右旋轉
-              </button>
-              <button
-                type="button"
-                className="rounded bg-slate-700 px-2 py-1 text-xs text-white hover:bg-slate-600"
-                onClick={collapse}
-              >
-                收合
-              </button>
-            </div>
-          </div>
-          <div className="flex max-h-[70vh] items-center justify-center overflow-auto">
-            <img
-              src={imageUrl}
-              alt={expandedAttachment.filename}
-              className="max-h-[65vh] max-w-full object-contain transition-transform duration-150"
-              style={{ transform: `rotate(${rotation}deg)` }}
-            />
-          </div>
-        </div>
+        <ImageViewer key={expandedAttachment.id} src={imageUrl} filename={expandedAttachment.filename} onClose={collapse} />
       )}
     </div>
   );
