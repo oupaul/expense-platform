@@ -7,6 +7,7 @@ import { formatAmount } from "@/lib/utils";
 import type { AuthState } from "@/types/auth";
 import type { ApplicationListItem } from "@/types/application";
 import { ApplicationDetail } from "@/components/ApplicationDetail";
+import { PrintStatusBadge } from "@/components/PrintStatusBadge";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -45,14 +46,17 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
   const canViewAll = auth.user.role === "admin" || auth.user.canViewAllReports;
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 只看「還沒有人按過列印」的申請單，給忘記有沒有印的人快速找出來用。
+  const [unprintedOnly, setUnprintedOnly] = useState(false);
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["applications", auth.user.companyId, scope],
+    queryKey: ["applications", auth.user.companyId, scope, unprintedOnly],
     queryFn: () =>
-      apiFetch<ApplicationListItem[]>(`/companies/${auth.user.companyId}/applications?scope=${scope}`, {
-        token: auth.token,
-      }),
+      apiFetch<ApplicationListItem[]>(
+        `/companies/${auth.user.companyId}/applications?scope=${scope}${unprintedOnly ? "&printed=false" : ""}`,
+        { token: auth.token }
+      ),
   });
 
   const [actionError, setActionError] = useState<string | null>(null);
@@ -86,6 +90,11 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
         )}
       </div>
 
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={unprintedOnly} onChange={(e) => setUnprintedOnly(e.target.checked)} />
+        只看尚未列印的申請單(草稿不計)
+      </label>
+
       {isLoading && <div className="p-8 text-center text-muted-foreground">載入中…</div>}
       {isError && <div className="p-8 text-center text-destructive">載入失敗，請重新整理再試一次</div>}
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
@@ -101,6 +110,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
               <TableHead>申請日期</TableHead>
               <TableHead>金額</TableHead>
               <TableHead>狀態</TableHead>
+              <TableHead>列印</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -120,6 +130,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
                       {STATUS_LABEL[app.status] ?? app.status}
                       <div className="text-xs text-muted-foreground">{currentStageLabel(app)}</div>
                     </TableCell>
+                    <TableCell>{isDraft ? "-" : <PrintStatusBadge print={app.print} />}</TableCell>
                     <TableCell className="space-x-2">
                       {/* 草稿還沒真的送出，直接給「繼續編輯」/「刪除」，不提供「查看明細」——
                           內容本來就不完整，用跟已送出申請單一樣的唯讀明細畫面意義不大。 */}
@@ -176,7 +187,7 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
                   </TableRow>
                   {expanded && !isDraft && (
                     <TableRow>
-                      <TableCell colSpan={scope === "all" ? 7 : 6} className="p-0">
+                      <TableCell colSpan={scope === "all" ? 8 : 7} className="p-0">
                         <ApplicationDetail auth={auth} applicationId={app.id} />
                       </TableCell>
                     </TableRow>

@@ -7,6 +7,7 @@ import type { AuthState } from "@/types/auth";
 import type { ApplicationListItem } from "@/types/application";
 import { Fragment, useState } from "react";
 import { ApplicationDetail } from "@/components/ApplicationDetail";
+import { PrintStatusBadge } from "@/components/PrintStatusBadge";
 import { SignaturePad } from "@/components/SignaturePad";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -58,6 +59,7 @@ function ReviewedList({ auth }: { auth: AuthState }) {
           <TableHead>申請日期</TableHead>
           <TableHead>金額</TableHead>
           <TableHead>狀態</TableHead>
+          <TableHead>列印</TableHead>
           <TableHead />
         </TableRow>
       </TableHeader>
@@ -74,6 +76,9 @@ function ReviewedList({ auth }: { auth: AuthState }) {
                 <TableCell>{formatAmount(Math.round(Number(app.totalAmountTWD)))}</TableCell>
                 <TableCell className={STATUS_COLOR[app.status] ?? ""}>{STATUS_LABEL[app.status] ?? app.status}</TableCell>
                 <TableCell>
+                  <PrintStatusBadge print={app.print} />
+                </TableCell>
+                <TableCell>
                   <Button size="sm" variant="outline" onClick={() => setExpandedId(expanded ? null : app.id)}>
                     {expanded ? "收合" : "查看明細"}
                   </Button>
@@ -81,7 +86,7 @@ function ReviewedList({ auth }: { auth: AuthState }) {
               </TableRow>
               {expanded && (
                 <TableRow>
-                  <TableCell colSpan={7} className="p-0">
+                  <TableCell colSpan={8} className="p-0">
                     <ApplicationDetail auth={auth} applicationId={app.id} />
                   </TableCell>
                 </TableRow>

@@ -163,6 +163,7 @@ model Company {
   users             User[]
   applications      ExpenseApplication[]
   notifications     Notification[]
+  printLogs         PrintLog[]
   numberCounters    ApplicationNumberCounter[]
   customFields      CustomField[]
 
@@ -367,6 +368,7 @@ model User {
   approvalRecords ApprovalRecord[]
   uploadedAttachments Attachment[]
   notifications  Notification[]
+  printLogs      PrintLog[]
 
   createdAt DateTime @default(now())
 
@@ -420,6 +422,7 @@ model ExpenseApplication {
   approvalRecords ApprovalRecord[]
   attachments     Attachment[]
   notifications   Notification[]
+  printLogs       PrintLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -531,4 +534,23 @@ model Notification {
 
   @@index([companyId, userId, read])
   @@index([companyId, emailStatus])
+}
+
+// 「列印 / 匯出 PDF」按鈕被按下的紀錄，讓大家(尤其是財務歸檔紙本的人)查得到這張單有沒有
+// 印過、誰印的。瀏覽器的 window.print() 只知道列印視窗被打開，沒辦法得知最後是真的印出、
+// 存成 PDF 還是按了取消，所以這裡記的是「開啟過列印」，不是「確實印出」。全公司共用同一份
+// 紀錄(不是每人各一份)：只要有人印過，其他人在清單上就看得到。
+model PrintLog {
+  id            String             @id @default(cuid())
+  companyId     String
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  applicationId String
+  application   ExpenseApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([applicationId, createdAt])
+  @@index([companyId])
 }

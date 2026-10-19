@@ -23,6 +23,29 @@ function fireNotification(promise: Promise<void>) {
 type CompanyScoped = Request<{ companyId: string }>;
 type CompanyScopedWithId = Request<{ companyId: string; id: string }>;
 
+// 「列印 / 匯出 PDF」紀錄摘要(見 schema 的 PrintLog)：列表跟明細都帶出「共幾次、最近一次
+// 是誰/何時」，讓大家不用點進去就知道這張單有沒有印過。紀錄的是「開啟過列印」，不是確實印出。
+const printSummaryInclude = {
+  printLogs: {
+    orderBy: { createdAt: "desc" as const },
+    take: 1,
+    select: { createdAt: true, user: { select: { name: true } } },
+  },
+  _count: { select: { printLogs: true } },
+};
+
+function withPrintSummary<T extends { printLogs: { createdAt: Date; user: { name: string } }[]; _count: { printLogs: number } }>(app: T) {
+  const { printLogs, _count, ...rest } = app;
+  return {
+    ...rest,
+    print: {
+      count: _count.printLogs,
+      lastPrintedAt: printLogs[0]?.createdAt ?? null,
+      lastPrintedByName: printLogs[0]?.user.name ?? null,
+    },
+  };
+}
+
 // 簽名圖檔存成 base64 data URL；用最基本的格式檢查擋掉亂塞的字串，
 // 大小上限搭配 index.ts 的 express.json({ limit: "5mb" })，避免單一簽名把 payload 撐爆。
 const signatureSchema = z
@@ -323,7 +346,7 @@ applicationsRouter.post("/", async (req: CompanyScoped, res) => {
   res.status(201).json(application);
 });
 
-// GET /api/companies/:companyId/applications?scope=mine|pending|reviewed|all
+// GET /api/companies/:companyId/applications?scope=mine|pending|reviewed|all&printed=true|false
 applicationsRouter.get("/", async (req: CompanyScoped, res) => {
   const scope = ["pending", "reviewed", "all"].includes(req.query.scope as string)
     ? (req.query.scope as "pending" | "reviewed" | "all")
@@ -342,12 +365,17 @@ applicationsRouter.get("/", async (req: CompanyScoped, res) => {
       ? { companyId: req.params.companyId, applicantId: auth.userId }
       : { companyId: req.params.companyId, status: { not: "draft" } }; // all/pending/reviewed 都要排除草稿，pending/reviewed 再用程式篩選
 
+  // printed=false 只看「還沒有人按過列印」的申請單(忘記有沒有印的人用這個找)，printed=true 反之。
+  const printedFilter =
+    req.query.printed === "false" ? { printLogs: { none: {} } } : req.query.printed === "true" ? { printLogs: { some: {} } } : {};
+
   const applications = await prisma.expenseApplication.findMany({
-    where,
+    where: { ...where, ...printedFilter },
     include: {
       applicant: { select: { name: true } },
       department: { select: { name: true } },
       approvalRecords: { include: { stage: true }, orderBy: { stage: { stageOrder: "asc" } } },
+      ...printSummaryInclude,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -355,11 +383,13 @@ applicationsRouter.get("/", async (req: CompanyScoped, res) => {
   if (scope === "pending") {
     // pending：只回傳「目前輪到我這個角色簽核」的申請單 —— 前面關卡都還沒過的不算輪到我。
     return res.json(
-      applications.filter((app) => {
-        if (app.status !== "pending") return false;
-        const currentStage = app.approvalRecords.find((r) => r.status === "waiting");
-        return currentStage?.stage.roleKey === auth.role;
-      })
+      applications
+        .filter((app) => {
+          if (app.status !== "pending") return false;
+          const currentStage = app.approvalRecords.find((r) => r.status === "waiting");
+          return currentStage?.stage.roleKey === auth.role;
+        })
+        .map(withPrintSummary)
     );
   }
 
@@ -369,10 +399,12 @@ applicationsRouter.get("/", async (req: CompanyScoped, res) => {
     // 跟 pending 用「角色」比對不同，這裡要精準到「我這個人親自簽過」，避免同角色
     // 換了別人接手也算進自己的簽核紀錄。已退回的申請單如果被重新送出、走過同一關，
     // 這個人可能對同一張單留下不只一筆紀錄，前端用申請單 id 去重就好，這裡不用特別處理。
-    return res.json(applications.filter((app) => app.approvalRecords.some((r) => r.approverId === auth.userId)));
+    return res.json(
+      applications.filter((app) => app.approvalRecords.some((r) => r.approverId === auth.userId)).map(withPrintSummary)
+    );
   }
 
-  res.json(applications);
+  res.json(applications.map(withPrintSummary));
 });
 
 // GET /api/companies/:companyId/applications/:id
@@ -389,6 +421,7 @@ applicationsRouter.get("/:id", async (req: CompanyScopedWithId, res) => {
         orderBy: { stage: { stageOrder: "asc" } },
       },
       attachments: { orderBy: { createdAt: "asc" } },
+      ...printSummaryInclude,
     },
   });
   if (!application) return res.status(404).json({ error: "找不到申請單" });
@@ -397,7 +430,28 @@ applicationsRouter.get("/:id", async (req: CompanyScopedWithId, res) => {
       error: application.status === "draft" ? "無權查看此草稿" : "無權查看此申請單",
     });
   }
-  res.json(application);
+  res.json(withPrintSummary(application));
+});
+
+// POST /api/companies/:companyId/applications/:id/print-log —— 按下「列印 / 匯出 PDF」時記一筆。
+// 能看到這張單的人才能記(跟 GET /:id 同一套權限)，回傳更新後的摘要讓前端立刻刷新顯示。
+applicationsRouter.post("/:id/print-log", async (req: CompanyScopedWithId, res) => {
+  const application = await prisma.expenseApplication.findFirst({
+    where: { id: req.params.id, companyId: req.params.companyId },
+    include: { approvalRecords: { include: { stage: true } } },
+  });
+  if (!application) return res.status(404).json({ error: "找不到申請單" });
+  if (!canViewApplication(application, req.auth!)) return res.status(403).json({ error: "無權查看此申請單" });
+  if (application.status === "draft") return res.status(400).json({ error: "草稿不記錄列印" });
+
+  await prisma.printLog.create({
+    data: { companyId: req.params.companyId, applicationId: application.id, userId: req.auth!.userId },
+  });
+  const summary = await prisma.expenseApplication.findUniqueOrThrow({
+    where: { id: application.id },
+    select: printSummaryInclude,
+  });
+  res.json(withPrintSummary(summary).print);
 });
 
 // POST /api/companies/:companyId/applications/draft —— 建立一張新草稿，欄位幾乎都可以先空著。

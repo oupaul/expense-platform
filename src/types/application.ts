@@ -1,3 +1,10 @@
+// 「列印 / 匯出 PDF」被開啟過的紀錄摘要。記的是「按過按鈕」，瀏覽器沒辦法得知最後是真的印出還是取消。
+export interface PrintSummary {
+  count: number;
+  lastPrintedAt: string | null;
+  lastPrintedByName: string | null;
+}
+
 export interface ApplicationListItem {
   id: string;
   applicantId: string;
@@ -19,6 +26,7 @@ export interface ApplicationListItem {
     status: string;
     stage: { label: string; roleKey: string; stageOrder: number };
   }[];
+  print: PrintSummary;
 }
 
 export interface ApplicationItemDetail {
@@ -77,4 +85,5 @@ export interface ApplicationDetail {
   items: ApplicationItemDetail[];
   approvalRecords: ApprovalRecordDetail[];
   attachments: AttachmentMeta[];
+  print: PrintSummary;
 }

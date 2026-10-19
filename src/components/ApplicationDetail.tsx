@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
@@ -27,9 +27,25 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
         token: auth.token,
       }),
   });
+  const queryClient = useQueryClient();
   // 只是要拿公司品牌設定(顏色、名稱)給列印版面用；這個 query 在別的地方(填寫申請單)
   // 已經打過、有 5 分鐘快取，這裡再叫一次不會多一次真正的網路請求。
   const { data: config } = useCompanyConfig(auth.user.companySlug);
+
+  // 先印、再在背景記錄：列印視窗不該因為記錄請求慢或失敗而被擋住或延遲(window.print()
+  // 會同步阻塞，所以記錄請求要在它之前送出)。記錄失敗就算了，不影響使用者列印。
+  const handlePrint = () => {
+    apiFetch(`/companies/${auth.user.companyId}/applications/${applicationId}/print-log`, {
+      method: "POST",
+      token: auth.token,
+    })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, applicationId] });
+        queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
+      })
+      .catch(() => {});
+    window.print();
+  };
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground">載入明細中…</div>;
   if (isError || !data) return <div className="p-4 text-sm text-destructive">載入失敗</div>;
@@ -91,9 +107,18 @@ export function ApplicationDetail({ auth, applicationId }: { auth: AuthState; ap
             {data.applicationDate ? new Date(data.applicationDate).toLocaleDateString("zh-TW") : "-"}
           </div>
         </div>
-        <Button size="sm" variant="outline" className="print:hidden" onClick={() => window.print()}>
-          📄 列印 / 匯出 PDF
-        </Button>
+        <div className="flex shrink-0 flex-col items-end gap-1 print:hidden">
+          <Button size="sm" variant="outline" onClick={handlePrint}>
+            📄 列印 / 匯出 PDF
+          </Button>
+          {/* 記的是「按過列印按鈕」，瀏覽器沒辦法知道最後是真的印出、存成 PDF 還是取消，
+              所以用「曾開啟列印」這種不過度承諾的說法。 */}
+          <span className={`text-xs ${data.print.count > 0 ? "text-green-700" : "text-muted-foreground"}`}>
+            {data.print.count > 0 && data.print.lastPrintedAt
+              ? `曾開啟列印 ${data.print.count} 次，最近：${new Date(data.print.lastPrintedAt).toLocaleString("zh-TW")}(${data.print.lastPrintedByName ?? "-"})`
+              : "尚未列印"}
+          </span>
+        </div>
       </div>
 
       {data.status === "returned" && data.returnComment && (
