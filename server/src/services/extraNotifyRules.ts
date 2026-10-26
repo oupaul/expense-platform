@@ -8,10 +8,12 @@ const targetSchema = z.object({
   userIds: z.array(z.string().min(1).max(60)).max(200).default([]),
 });
 
+// zod 4 的 .default() 遇到 undefined 會直接回傳預設值、不再跑內層 schema(內層的 roles/userIds
+// 預設值就不會補上)，所以物件要用 .prefault()：先把 {} 當輸入再完整解析一次。
 export const extraNotifyRulesSchema = z.object({
-  approved: targetSchema.default({}),
-  rejected: targetSchema.default({}),
-  returned: targetSchema.default({}),
+  approved: targetSchema.prefault({}),
+  rejected: targetSchema.prefault({}),
+  returned: targetSchema.prefault({}),
 });
 
 export type ExtraNotifyRules = z.infer<typeof extraNotifyRulesSchema>;

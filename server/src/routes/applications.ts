@@ -69,7 +69,7 @@ const itemSchema = z.object({
   // key 是 CustomField.id，value 是使用者填的內容——公司自己在後台開了哪些自訂欄位
   // 是動態的，這裡沒辦法用固定的 zod schema 描述每個欄位長怎樣，實際「這個類別需要
   // 哪些欄位、必不必填、select 的話值合不合法」留給 validateApplicationInput 查資料庫驗證。
-  customFieldValues: z.record(z.string()).optional(),
+  customFieldValues: z.record(z.string(), z.string()).optional(),
 });
 
 const createSchema = z.object({
@@ -78,7 +78,7 @@ const createSchema = z.object({
   applicationDate: z.coerce.date(),
   purpose: z.string().optional(),
   payeeName: z.string().optional(),
-  payeeBankInfo: z.record(z.string()).optional(),
+  payeeBankInfo: z.record(z.string(), z.string()).optional(),
   requestedPaymentDate: z.coerce.date().optional(),
   items: z.array(itemSchema).min(1),
   applicantSignature: signatureSchema,
@@ -97,7 +97,7 @@ const draftItemSchema = z.object({
   invoiceDate: z.coerce.date().optional(),
   currency: z.enum(ALL_CURRENCIES).default("TWD"),
   amount: z.number().optional(),
-  customFieldValues: z.record(z.string()).optional(),
+  customFieldValues: z.record(z.string(), z.string()).optional(),
 });
 
 const draftSchema = z.object({
@@ -106,7 +106,7 @@ const draftSchema = z.object({
   applicationDate: z.coerce.date().optional(),
   purpose: z.string().optional(),
   payeeName: z.string().optional(),
-  payeeBankInfo: z.record(z.string()).optional(),
+  payeeBankInfo: z.record(z.string(), z.string()).optional(),
   requestedPaymentDate: z.coerce.date().optional(),
   items: z.array(draftItemSchema).optional(),
   applicantSignature: z.string().optional(),
