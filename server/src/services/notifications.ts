@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
 import { sendMail } from "./mailer.js";
 import { renderNotificationEmailHtml } from "./emailTemplate.js";
+import { parseRules, type ExtraNotifyEvent } from "./extraNotifyRules.js";
 
 // 站內通知(DB 那份，鈴鐺清單用)跟 email 共用同一個觸發點，但內容分開處理：
 // message 是給鈴鐺清單看的一句話摘要(空間小，越簡短越好)；emailFields/emailNote
@@ -103,6 +104,45 @@ async function getApplicationSummary(applicationId: string) {
   });
 }
 
+// 核准完成 / 被駁回 / 被退回時，除了申請人本人之外，還要通知後台設定好的額外收件人
+// (指定角色 + 指定個別使用者，見 Company.extraNotifyRules)。申請人本人已經有自己的通知、
+// 做出這個簽核決定的人自己也不需要被通知，兩者都排除，也避免同一人因為同時符合角色跟
+// 個別指定而收到兩封。停用的帳號不寄。
+async function notifyExtraRecipients(params: {
+  application: { id: string; companyId: string; applicantId: string };
+  event: ExtraNotifyEvent;
+  actorId?: string;
+  title: string;
+  message: string;
+  emailFields: [label: string, value: string][];
+  emailNote?: string;
+}) {
+  const { application, event, actorId, title, message, emailFields, emailNote } = params;
+  const company = await prisma.company.findUnique({ where: { id: application.companyId }, select: { extraNotifyRules: true } });
+  const target = parseRules(company?.extraNotifyRules)[event];
+  if (target.roles.length === 0 && target.userIds.length === 0) return;
+
+  const recipients = await prisma.user.findMany({
+    where: {
+      companyId: application.companyId,
+      active: true,
+      id: { notIn: [application.applicantId, ...(actorId ? [actorId] : [])] },
+      OR: [{ role: { in: target.roles } }, { id: { in: target.userIds } }],
+    },
+    select: { id: true, email: true },
+  });
+  await notify({
+    companyId: application.companyId,
+    applicationId: application.id,
+    type: event,
+    title,
+    message,
+    emailFields,
+    emailNote,
+    recipients,
+  });
+}
+
 // 申請單送出(直接建立、草稿送出、退回後重新送出都算)時呼叫，通知第一關的簽核者。
 export async function notifySubmission(application: { id: string; companyId: string; totalAmountTWD: number }) {
   const [firstStage, summary] = await Promise.all([
@@ -142,8 +182,10 @@ export async function notifyDecision(params: {
   nextStageRoleKey?: string;
   nextStageLabel?: string;
   comment?: string;
+  // 做出這次簽核決定的人，額外收件人名單會把他排除(自己做的決定不需要再通知自己)。
+  actorId?: string;
 }) {
-  const { application, action, isLastStage, currentStageLabel, nextStageRoleKey, nextStageLabel, comment } = params;
+  const { application, action, isLastStage, currentStageLabel, nextStageRoleKey, nextStageLabel, comment, actorId } = params;
   const amount = formatTWD(application.totalAmountTWD);
   const summary = await getApplicationSummary(application.id);
   const baseFields: [string, string][] = [
@@ -167,8 +209,12 @@ export async function notifyDecision(params: {
     return;
   }
 
-  const applicant = await prisma.user.findUnique({ where: { id: application.applicantId }, select: { id: true, email: true } });
+  const applicant = await prisma.user.findUnique({
+    where: { id: application.applicantId },
+    select: { id: true, email: true, name: true },
+  });
   if (!applicant) return;
+  const extra = { application, actorId };
 
   if (action === "approve") {
     await notify({
@@ -179,6 +225,13 @@ export async function notifyDecision(params: {
       message: `你送出的費用申請單(金額 ${amount})已完成全部簽核，核准通過。`,
       emailFields: [...baseFields, ["結果", "全部關卡核准通過"]],
       recipients: [applicant],
+    });
+    await notifyExtraRecipients({
+      ...extra,
+      event: "approved",
+      title: `申請單已核准完成：${applicant.name}`,
+      message: `${applicant.name} 的費用申請單(金額 ${amount})已完成全部簽核，核准通過。`,
+      emailFields: [...baseFields, ["結果", "全部關卡核准通過"]],
     });
   } else if (action === "reject") {
     await notify({
@@ -191,6 +244,14 @@ export async function notifyDecision(params: {
       emailNote: comment ? `備註：${comment}` : undefined,
       recipients: [applicant],
     });
+    await notifyExtraRecipients({
+      ...extra,
+      event: "rejected",
+      title: `申請單被駁回：${applicant.name}`,
+      message: `${applicant.name} 的費用申請單(金額 ${amount})在「${currentStageLabel}」被駁回。${comment ? `備註：${comment}` : ""}`,
+      emailFields: [...baseFields, ["駁回關卡", currentStageLabel]],
+      emailNote: comment ? `備註：${comment}` : undefined,
+    });
   } else {
     await notify({
       companyId: application.companyId,
@@ -201,6 +262,14 @@ export async function notifyDecision(params: {
       emailFields: [...baseFields, ["退回關卡", currentStageLabel]],
       emailNote: comment ? `備註：${comment}` : undefined,
       recipients: [applicant],
+    });
+    await notifyExtraRecipients({
+      ...extra,
+      event: "returned",
+      title: `申請單被退回：${applicant.name}`,
+      message: `${applicant.name} 的費用申請單(金額 ${amount})在「${currentStageLabel}」被退回。備註：${comment ?? ""}`,
+      emailFields: [...baseFields, ["退回關卡", currentStageLabel]],
+      emailNote: comment ? `備註：${comment}` : undefined,
     });
   }
 }

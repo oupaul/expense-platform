@@ -58,6 +58,19 @@ export interface ReportSummary {
   }[];
 }
 
+export type ExtraNotifyEvent = "approved" | "rejected" | "returned";
+
+export interface ExtraNotifyTarget {
+  roles: string[];
+  userIds: string[];
+}
+
+export interface ExtraNotifyRulesResult {
+  rules: Record<ExtraNotifyEvent, ExtraNotifyTarget>;
+  roles: { roleKey: string; label: string | null }[];
+  users: { id: string; name: string; email: string; role: string }[];
+}
+
 export interface NotificationLogResult {
   statusCounts: { status: string; count: number }[];
   items: {

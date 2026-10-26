@@ -701,6 +701,7 @@ applicationsRouter.post("/:id/decision", async (req: CompanyScopedWithId, res) =
       nextStageRoleKey: nextStage?.roleKey,
       nextStageLabel: nextStage?.label,
       comment,
+      actorId: auth.userId,
     })
   );
   res.status(204).end();
