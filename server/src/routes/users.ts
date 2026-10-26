@@ -103,8 +103,9 @@ usersRouter.put("/:id", async (req: CompanyScopedWithId, res) => {
       return res.status(409).json({ error: "此 email 已被使用" });
     }
   }
+  // where 帶 companyId：只用 id 的話，別家公司 admin 拿到這個 id 就能改別人的角色/停用帳號。
   const user = await prisma.user.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id, companyId: req.params.companyId },
     data: parsed.data,
     select: userSelect,
   });
@@ -114,12 +115,13 @@ usersRouter.put("/:id", async (req: CompanyScopedWithId, res) => {
 const resetPasswordSchema = z.object({ newPassword: z.string().min(8, "密碼至少需要 8 個字元") });
 
 // POST /api/companies/:companyId/users/:id/reset-password
-usersRouter.post("/:id/reset-password", async (req, res) => {
+usersRouter.post("/:id/reset-password", async (req: CompanyScopedWithId, res) => {
   const parsed = resetPasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
   const passwordHash = await hashPassword(parsed.data.newPassword);
-  await prisma.user.update({ where: { id: req.params.id }, data: { passwordHash } });
+  // 同上：必須限定同一家公司，否則可以重設別家公司任何人(包含 admin)的密碼。
+  await prisma.user.update({ where: { id: req.params.id, companyId: req.params.companyId }, data: { passwordHash } });
   res.status(204).end();
 });

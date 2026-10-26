@@ -14,7 +14,8 @@ exchangeRatesRouter.use(requireAuth, requireSameCompany, requireRole("admin"));
 
 const upsertSchema = z.object({
   currency: z.enum(FOREIGN_CURRENCIES),
-  rateToTWD: z.number().positive(),
+  // 欄位是 Decimal(12,6)，整數部分最多 6 位，超過會在寫入時出資料庫錯誤。
+  rateToTWD: z.number().positive().max(999999),
 });
 
 // GET /api/companies/:companyId/exchange-rates

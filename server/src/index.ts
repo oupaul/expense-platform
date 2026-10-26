@@ -4,7 +4,9 @@ import express from "express";
 import cors from "cors";
 import { z } from "zod";
 import { pinoHttp } from "pino-http";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
+import { prismaErrorResponse } from "./services/prismaErrors.js";
 import { companiesRouter } from "./routes/companies.js";
 import { createOptionRouter } from "./routes/optionResource.js";
 import { approvalStagesRouter } from "./routes/approvalStages.js";
@@ -81,6 +83,17 @@ app.use("/api/companies/:companyId/notification-log", notificationLogRouter);
 app.use("/api/companies/:companyId/notification-rules", notificationRulesRouter);
 
 app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Prisma 已知的資料庫錯誤是「使用者操作造成的」，不是伺服器壞掉：回對應的 4xx 與看得懂的
+  // 訊息，不要一律變成 500「伺服器發生錯誤」。P2002 唯一約束(名稱/email 重複)、P2025 找不到
+  // 要更新的資料(不存在，或屬於別家公司——where 都帶了 companyId，所以兩者在這裡看起來
+  // 一樣，刻意不區分，免得洩漏別家公司有沒有這筆資料)、P2003 關聯的資料不存在、P2000 內容過長。
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    const known = prismaErrorResponse(err);
+    if (known) {
+      req.log.warn({ code: err.code }, "資料庫操作被拒絕");
+      return res.status(known.status).json({ error: known.message });
+    }
+  }
   req.log.error(err);
   // express.json() 對格式錯誤的 body 丟出來的是帶 status:400 的 SyntaxError，
   // 這種情況要回 400(使用者送錯格式)，不是 500(伺服器自己的錯)。
