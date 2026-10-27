@@ -21,13 +21,13 @@ type Tab = "companies" | "admins" | "backup" | "notifications" | "reports" | "se
 // 服務供應商的平台管理入口，走 /platform 這個路徑，跟租戶使用者的一般登入(LoginForm)
 // 完全分開一套畫面、一組 token，不會混在一起。
 export function PlatformApp() {
-  const { auth, login, logout } = usePlatformAuth();
+  const { auth, login, logout, notice } = usePlatformAuth();
   const [tab, setTab] = useState<Tab>("companies");
   // 平台管理者的權限比一般租戶使用者更高(能建租戶、重設任何 admin 的密碼)，閒置
   // 自動登出這件事同樣重要，甚至更重要，見 src/hooks/useIdleLogout.ts 的完整說明。
   const { secondsLeft, stayLoggedIn } = useIdleLogout({ enabled: !!auth, onIdle: logout });
 
-  if (!auth) return <PlatformLoginForm onLogin={login} />;
+  if (!auth) return <PlatformLoginForm onLogin={login} notice={notice} />;
 
   return (
     <div className="min-h-screen bg-slate-50">

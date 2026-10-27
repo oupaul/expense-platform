@@ -6,9 +6,10 @@ import { ApiError } from "@/lib/api";
 
 interface Props {
   onLogin: (email: string, password: string) => Promise<unknown>;
+  notice?: string | null;
 }
 
-export function PlatformLoginForm({ onLogin }: Props) {
+export function PlatformLoginForm({ onLogin, notice }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export function PlatformLoginForm({ onLogin }: Props) {
           <Label>密碼</Label>
           <Input value={password} onChange={(e) => setPassword(e.target.value)} type="password" />
         </div>
+        {notice && !error && <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-700">{notice}</p>}
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="submit" className="w-full" disabled={submitting}>
           {submitting ? "登入中…" : "登入"}

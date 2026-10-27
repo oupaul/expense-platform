@@ -6,7 +6,9 @@ import { recordActivity } from "../services/activityTracker.js";
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "未登入" });
+    // code 是給前端判斷用的：只有這兩種 401 代表「憑證沒了/過期了」，前端要自動回登入頁；
+    // 其他 401(例如改密碼時「目前密碼不正確」)只是一般錯誤，不能因此把人登出。
+    return res.status(401).json({ error: "未登入", code: "AUTH_REQUIRED" });
   }
   try {
     req.auth = verifyAuthToken(header.slice("Bearer ".length));
@@ -15,7 +17,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     recordActivity(req.auth);
     next();
   } catch {
-    return res.status(401).json({ error: "登入已過期，請重新登入" });
+    return res.status(401).json({ error: "登入已過期，請重新登入", code: "AUTH_EXPIRED" });
   }
 }
 

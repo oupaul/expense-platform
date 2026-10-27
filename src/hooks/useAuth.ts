@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { getMsalInstance } from "@/lib/msal";
+import { AUTH_EXPIRED_NOTICE, isTokenExpired } from "@/lib/jwt";
+import { useAuthExpiry } from "@/hooks/useAuthExpiry";
 import type { AuthState } from "@/types/auth";
 
 const STORAGE_KEY = "expense-platform-auth";
@@ -16,17 +18,28 @@ interface M365Pending {
   clientId: string;
 }
 
-function readStored(): AuthState | null {
+// 存在 localStorage 的登入狀態關掉瀏覽器再開也還在，所以隔天回來時裡面的 token 可能早就過期了
+// (固定 8 小時)：啟動時就先檢查，過期的直接丟掉並提示，不要讓畫面以為還登入著。
+function readStored(): { auth: AuthState | null; expired: boolean } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as AuthState) : null;
+    const stored = raw ? (JSON.parse(raw) as AuthState) : null;
+    if (stored && isTokenExpired(stored.token)) return { auth: null, expired: true };
+    return { auth: stored, expired: false };
   } catch {
-    return null;
+    return { auth: null, expired: false };
   }
 }
 
 export function useAuth() {
-  const [auth, setAuth] = useState<AuthState | null>(() => readStored());
+  const [initial] = useState(readStored);
+  const [auth, setAuth] = useState<AuthState | null>(initial.auth);
+  // 登入頁頂端的提示(例如「登入已過期」)，登入成功或手動登出後清掉。
+  const [notice, setNotice] = useState<string | null>(initial.expired ? AUTH_EXPIRED_NOTICE : null);
+  useAuthExpiry(auth?.token ?? null, () => {
+    setAuth(null);
+    setNotice(AUTH_EXPIRED_NOTICE);
+  });
   // 應用程式剛啟動、還在檢查「這次是不是從 Microsoft 登入導回來的」這段期間的過渡狀態，
   // 讓 LoginForm 可以先顯示「登入處理中」，不要讓使用者誤以為畫面卡住或登入失敗。
   const [m365Processing, setM365Processing] = useState(false);
@@ -65,6 +78,7 @@ export function useAuth() {
           method: "POST",
           body: { companySlug: pending.companySlug, idToken: redirectResult.idToken },
         });
+        setNotice(null);
         setAuth(result);
       } catch (err) {
         // 這裡是登入完導回來後唯一能顯示詳細錯誤的地方——這時候已經是全新的一次
@@ -83,6 +97,7 @@ export function useAuth() {
       method: "POST",
       body: { companySlug, email, password },
     });
+    setNotice(null);
     setAuth(result);
     return result;
   }, []);
@@ -106,7 +121,10 @@ export function useAuth() {
     // 這行以下(包括呼叫端 await 之後的程式碼)不會真的執行到。
   }, []);
 
-  const logout = useCallback(() => setAuth(null), []);
+  const logout = useCallback(() => {
+    setNotice(null);
+    setAuth(null);
+  }, []);
 
-  return { auth, login, loginWithM365, logout, m365Processing, m365Error };
+  return { auth, login, loginWithM365, logout, m365Processing, m365Error, notice };
 }

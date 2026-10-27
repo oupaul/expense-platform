@@ -13,6 +13,8 @@ interface Props {
   // 正常的登入表單，不然使用者會誤以為畫面卡住或登入失敗(見 useAuth.ts 的說明)。
   m365Processing: boolean;
   m365Error: string | null;
+  // 登入頁頂端的提示，例如「登入已過期，請重新登入」。
+  notice?: string | null;
 }
 
 // 預填示範帳號、底下的提示文字都只在本機開發(`npm run dev`)有意義——那是唯一能保證
@@ -21,7 +23,7 @@ interface Props {
 // 寫死在這裡的話兩種情境都會秀出來，正式站沒有這些帳號會讓人以為是空白畫面壞掉。
 const SHOW_DEMO_HINT = import.meta.env.DEV;
 
-export function LoginForm({ onLogin, onLoginWithM365, m365Processing, m365Error }: Props) {
+export function LoginForm({ onLogin, onLoginWithM365, m365Processing, m365Error, notice }: Props) {
   const [companySlug, setCompanySlug] = useState(SHOW_DEMO_HINT ? "demo-a" : "");
   const [email, setEmail] = useState(SHOW_DEMO_HINT ? "applicant@demo-a.test" : "");
   const [password, setPassword] = useState("");
@@ -106,6 +108,7 @@ export function LoginForm({ onLogin, onLoginWithM365, m365Processing, m365Error 
           <Label>密碼</Label>
           <Input value={password} onChange={(e) => setPassword(e.target.value)} type="password" />
         </div>
+        {notice && !displayError && <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-700">{notice}</p>}
         {displayError && <p className="text-sm text-destructive">{displayError}</p>}
         <Button type="submit" className="w-full" disabled={submitting}>
           {submitting ? "登入中…" : "登入"}

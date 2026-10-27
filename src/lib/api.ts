@@ -5,6 +5,25 @@ const FETCH_TIMEOUT_MS = 120_000;
 
 export class ApiError extends Error {}
 
+// 登入憑證過期/失效時(後端回 401 且帶 AUTH_EXPIRED / AUTH_REQUIRED 代碼)，所有發出這個
+// token 的請求都會走到這裡，通知登入狀態的持有者(useAuth / usePlatformAuth)自動登出、
+// 回到登入頁。不能看到任何 401 就登出：改密碼時「目前密碼不正確」也是 401，只是一般錯誤。
+type AuthExpiredListener = (token: string) => void;
+const authExpiredListeners = new Set<AuthExpiredListener>();
+
+export function subscribeAuthExpired(listener: AuthExpiredListener): () => void {
+  authExpiredListeners.add(listener);
+  return () => {
+    authExpiredListeners.delete(listener);
+  };
+}
+
+function notifyIfAuthExpired(status: number, data: unknown, token: string | null | undefined) {
+  if (status !== 401 || !token) return;
+  const code = (data as { code?: unknown } | undefined)?.code;
+  if (code === "AUTH_EXPIRED" || code === "AUTH_REQUIRED") authExpiredListeners.forEach((listener) => listener(token));
+}
+
 // 統一在這裡加逾時保護：網路斷線、伺服器/反向代理中途把連線掐斷(例如 nginx 檔案大小
 // 限制擋掉還沒送完的上傳)等情況，fetch() 有時不會乾脆地 reject，而是整個吊在那裡沒反應。
 // 加上 AbortController 逾時，確保呼叫端一定會在有限時間內拿到成功或明確的錯誤。
@@ -40,6 +59,7 @@ export async function apiFetch<T>(
 
   const data = await res.json().catch(() => undefined);
   if (!res.ok) {
+    notifyIfAuthExpired(res.status, data, options.token);
     const message = data?.error && typeof data.error === "string" ? data.error : `請求失敗 (${res.status})`;
     throw new ApiError(message);
   }
@@ -58,6 +78,7 @@ export async function apiUpload<T>(path: string, files: File[], token: string | 
   });
   const data = await res.json().catch(() => undefined);
   if (!res.ok) {
+    notifyIfAuthExpired(res.status, data, token);
     const message = data?.error && typeof data.error === "string" ? data.error : `請求失敗 (${res.status})`;
     throw new ApiError(message);
   }
@@ -76,6 +97,7 @@ export async function apiUploadFile<T>(path: string, fieldName: string, file: Fi
   });
   const data = await res.json().catch(() => undefined);
   if (!res.ok) {
+    notifyIfAuthExpired(res.status, data, token);
     const message = data?.error && typeof data.error === "string" ? data.error : `請求失敗 (${res.status})`;
     throw new ApiError(message);
   }
@@ -89,7 +111,10 @@ export async function apiFetchBlobUrl(path: string, token: string | null): Promi
   const res = await fetchWithTimeout(`${API_BASE}${path}`, {
     headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
-  if (!res.ok) throw new ApiError(`請求失敗 (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 401) notifyIfAuthExpired(res.status, await res.json().catch(() => undefined), token);
+    throw new ApiError(`請求失敗 (${res.status})`);
+  }
   const blob = await res.blob();
   return URL.createObjectURL(blob);
 }
