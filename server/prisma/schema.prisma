@@ -523,7 +523,7 @@ model Notification {
   application   ExpenseApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   // submitted(有新申請單待你簽核) / approved(申請已核准) / rejected(已駁回) / returned(已退回) /
-  // cancelled(申請人自行取消)
+  // cancelled(申請人自行取消) / recalled(申請人撤回成草稿)
   type    String
   title   String
   message String

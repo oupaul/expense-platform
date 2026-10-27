@@ -20,6 +20,10 @@ export function prismaErrorResponse(err: Prisma.PrismaClientKnownRequestError): 
       return { status: 400, message: "所選的關聯資料不存在" };
     case "P2000":
       return { status: 400, message: "輸入的內容過長" };
+    case "P2034":
+      // 交易寫入衝突/死結：兩個請求同時改同一批資料，資料庫選了一個放棄。對使用者來說跟
+      // 「剛剛已經被別人處理過」一樣，重新整理後再試即可。
+      return { status: 409, message: "操作衝突，這筆資料剛剛被同時處理了，請重新整理後再試一次" };
     case "P2020":
       return { status: 400, message: "數值超出允許的範圍" };
     default:

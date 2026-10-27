@@ -67,6 +67,19 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
     onError: (err) => setActionError(err instanceof ApiError ? err.message : "刪除失敗"),
   });
 
+  // 撤回成草稿：誤按送出、內容還沒編輯完時用。成功後直接帶進「繼續編輯」，省得使用者
+  // 還要自己去清單裡找那張剛變成草稿的單。
+  const recallMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/companies/${auth.user.companyId}/applications/${id}/recall`, { method: "POST", token: auth.token }),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ["applications", auth.user.companyId] });
+      queryClient.invalidateQueries({ queryKey: ["application-detail", auth.user.companyId, id] });
+      onEdit?.(id);
+    },
+    onError: (err) => setActionError(err instanceof ApiError ? err.message : "撤回失敗"),
+  });
+
   const cancelMutation = useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/companies/${auth.user.companyId}/applications/${id}/cancel`, { method: "POST", token: auth.token }),
@@ -165,6 +178,26 @@ export function MyApplications({ auth, onEdit }: { auth: AuthState; onEdit?: (ap
                               編輯並重新送出
                             </Button>
                           )}
+                          {/* 撤回修改：只有本人、審核中、而且還沒有任何簽核者簽過(每一關都還在等待)
+                              的申請單才給。有人簽過就不給——簽名是簽在當時的內容上，這種情況改走
+                              「退回」或「取消」。後端也會再檢查一次，這裡只是不顯示按鈕。 */}
+                          {scope === "mine" &&
+                            app.applicantId === auth.user.id &&
+                            app.status === "pending" &&
+                            app.approvalRecords.every((r) => r.status === "waiting") && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={recallMutation.isPending}
+                                onClick={() => {
+                                  if (!window.confirm("撤回後這張申請單會變回草稿(內容與附件都保留)，目前等待簽核的人會收到通知。確定要撤回修改嗎？")) return;
+                                  setActionError(null);
+                                  recallMutation.mutate(app.id);
+                                }}
+                              >
+                                撤回修改
+                              </Button>
+                            )}
                           {/* 只有本人的申請單、還在「審核中」或「已退回」這兩種還沒走到終局的
                               狀態才能取消——已核准/已駁回是終局狀態，草稿走 DELETE .../draft
                               那條刪除的路，不會走到這個分支(isDraft 已經在上面另外處理掉)。 */}

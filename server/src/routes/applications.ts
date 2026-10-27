@@ -6,7 +6,7 @@ import { prisma } from "../db.js";
 import { requireAuth, requireSameCompany } from "../middleware/auth.js";
 import { ALL_CURRENCIES } from "../constants.js";
 import { attachmentsRouter } from "./attachments.js";
-import { notifySubmission, notifyDecision, notifyCancellation } from "../services/notifications.js";
+import { notifySubmission, notifyDecision, notifyCancellation, notifyRecall } from "../services/notifications.js";
 import { canViewApplication } from "../services/applicationAccess.js";
 import { nextApplicationNumber } from "../services/applicationNumber.js";
 
@@ -845,6 +845,66 @@ applicationsRouter.post("/:id/cancel", async (req: CompanyScopedWithId, res) => 
     notifyCancellation({
       application: { id: application.id, companyId: application.companyId, totalAmountTWD: Number(application.totalAmountTWD) },
       cancelledFromStatus,
+      currentStageRoleKey: currentRecord?.stage.roleKey,
+      currentStageLabel: currentRecord?.stage.label,
+    })
+  );
+  res.status(204).end();
+});
+
+// 撤回成草稿用的內部標記，讓交易裡「被搶先處理」這種預期中的情況能乾淨地回滾並回 409，
+// 跟真正的資料庫錯誤(要往上丟給全域錯誤處理)分開。
+class RecallConflictError extends Error {}
+
+// POST /api/companies/:companyId/applications/:id/recall
+// 誤按送出、但內容其實還沒編輯完：把「審核中、而且還沒有任何人簽核過」的申請單撤回成草稿，
+// 內容與附件都保留，改完可以再送出。一旦有簽核者簽過(核准/退回都算)就不能撤回——那些簽名
+// 是簽在當時的內容上，撤回修改會讓簽名失去意義，這時只能走「退回」或「取消」。
+// 撤回會清掉單號與還在等待中的簽核紀錄，重新送出時由 submit-draft 重新編號、重新建立。
+applicationsRouter.post("/:id/recall", async (req: CompanyScopedWithId, res) => {
+  const auth = req.auth!;
+  const application = await prisma.expenseApplication.findFirst({
+    where: { id: req.params.id, companyId: req.params.companyId },
+    include: { approvalRecords: { include: { stage: true }, orderBy: { stage: { stageOrder: "asc" } } } },
+  });
+  if (!application) return res.status(404).json({ error: "找不到申請單" });
+  if (application.applicantId !== auth.userId) {
+    return res.status(403).json({ error: "只有申請人本人能撤回申請" });
+  }
+  if (application.status !== "pending") {
+    return res.status(409).json({ error: "只有審核中的申請單可以撤回" });
+  }
+  if (application.approvalRecords.some((r) => r.status !== "waiting")) {
+    return res.status(409).json({ error: "已經有簽核者處理過這張申請單，無法撤回。需要修改請聯絡簽核者退回，或直接取消申請" });
+  }
+
+  // 跟取消、簽核同一種 compare-and-swap：只刪「還在 waiting」的簽核紀錄、刪到的筆數必須剛好
+  // 等於原本的筆數，再把申請單搬回草稿。簽核者在這個瞬間剛好簽下去的話，那一筆已經不是
+  // waiting，筆數對不上，整個交易回滾、回 409，不會把已經簽好的紀錄一起刪掉。
+  // 鎖定順序一定要跟 /:id/decision 一樣：先動簽核紀錄、再動申請單。順序相反的話，兩個請求
+  // 同時進來會互相等對方手上的鎖(死結)，資料庫會砍掉其中一個，變成 500(實測過)。
+  const recordCount = application.approvalRecords.length;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const removed = await tx.approvalRecord.deleteMany({ where: { applicationId: application.id, status: "waiting" } });
+      if (removed.count !== recordCount) throw new RecallConflictError();
+      const updated = await tx.expenseApplication.updateMany({
+        where: { id: application.id, status: "pending" },
+        data: { status: "draft", applicationNumber: null },
+      });
+      if (updated.count === 0) throw new RecallConflictError();
+    });
+  } catch (err) {
+    if (err instanceof RecallConflictError) {
+      return res.status(409).json({ error: "此申請單剛剛已經被處理過，請重新整理後再確認一次" });
+    }
+    throw err;
+  }
+
+  const currentRecord = application.approvalRecords[0];
+  fireNotification(
+    notifyRecall({
+      application: { id: application.id, companyId: application.companyId, totalAmountTWD: Number(application.totalAmountTWD) },
       currentStageRoleKey: currentRecord?.stage.roleKey,
       currentStageLabel: currentRecord?.stage.label,
     })

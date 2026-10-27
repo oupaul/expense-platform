@@ -11,7 +11,7 @@ import { parseRules, type ExtraNotifyEvent } from "./extraNotifyRules.js";
 async function notify(params: {
   companyId: string;
   applicationId: string;
-  type: "submitted" | "approved" | "rejected" | "returned" | "cancelled";
+  type: "submitted" | "approved" | "rejected" | "returned" | "cancelled" | "recalled";
   title: string;
   message: string;
   emailFields: [label: string, value: string][];
@@ -272,6 +272,36 @@ export async function notifyDecision(params: {
       emailNote: comment ? `備註：${comment}` : undefined,
     });
   }
+}
+
+// 申請人把「還沒有任何人簽核過」的申請單撤回成草稿時呼叫——目前正在等待的簽核者要知道
+// 這張單暫時不用處理了(省得他點開才發現單子不見)，修改完重新送出時會再收到一次通知。
+export async function notifyRecall(params: {
+  application: { id: string; companyId: string; totalAmountTWD: number };
+  currentStageRoleKey?: string;
+  currentStageLabel?: string;
+}) {
+  const { application, currentStageRoleKey, currentStageLabel } = params;
+  if (!currentStageRoleKey) return;
+
+  const amount = formatTWD(application.totalAmountTWD);
+  const summary = await getApplicationSummary(application.id);
+  const recipients = await findStageApprovers(application.companyId, currentStageRoleKey);
+  await notify({
+    companyId: application.companyId,
+    applicationId: application.id,
+    type: "recalled",
+    title: "有申請單已被申請人撤回修改",
+    message: `一張原本在「${currentStageLabel}」等待你簽核、金額 ${amount} 的費用申請單已被申請人撤回修改，暫時不用處理；修改完重新送出時會再通知你。`,
+    emailFields: [
+      ["申請人", summary?.applicant.name ?? "-"],
+      ["部門", summary?.department?.name ?? "-"],
+      ["用途", summary?.purpose || "-"],
+      ["金額", amount],
+      ["原本等待的關卡", currentStageLabel ?? "-"],
+    ],
+    recipients,
+  });
 }
 
 // 申請人自行取消申請單時呼叫。只有從「審核中」取消時才有「目前正在等待的簽核者」需要

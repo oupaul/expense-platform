@@ -16,7 +16,7 @@ import type { ApplicationDetail as ApplicationDetailType } from "@/types/applica
 import type { CategoryCustomFieldLink } from "@/types/company-config";
 import { ALL_CURRENCIES } from "@/lib/currencies";
 import { PrintableApplicationForm } from "@/components/print/PrintableApplicationForm";
-import { formatAmount } from "@/lib/utils";
+import { cn, formatAmount } from "@/lib/utils";
 
 interface ExpenseRowState {
   categoryId: string;
@@ -30,6 +30,20 @@ interface ExpenseRowState {
 
 function emptyRow(): ExpenseRowState {
   return { categoryId: "", description: "", amount: "", currency: "TWD" };
+}
+
+// 新增一列時帶入上一列的費用項目、幣別與專案編號——同一張單常常連續好幾筆都是同一類費用、
+// 同一個專案，省得每一列都重選一次。金額、說明、發票日期、自訂欄位不帶(每筆通常不一樣)；
+// 上一列還沒選費用項目就沒什麼好帶的，給全空白的一列。
+function nextRow(prev: ExpenseRowState | undefined): ExpenseRowState {
+  if (!prev || !prev.categoryId) return emptyRow();
+  return { ...emptyRow(), categoryId: prev.categoryId, currency: prev.currency, ...(prev.projectCode ? { projectCode: prev.projectCode } : {}) };
+}
+
+// 送出前檢查發現的一個問題：key 對應畫面上欄位的 data-field，用來自動捲動/聚焦/標紅。
+interface FormIssue {
+  key: string;
+  message: string;
 }
 
 function todayStr(): string {
@@ -91,6 +105,9 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" | "success" | "error"; message?: string }>({
     status: "idle",
   });
+  // 按過一次「送出申請」且檢查沒過之後才開始標紅/列出問題，之後每次修改都即時更新(改好就消失)；
+  // 一打開空白表單就滿江紅的話，使用者什麼都還沒做就被警告，體驗很差。
+  const [showErrors, setShowErrors] = useState(false);
 
   // 這次工作階段存出來的草稿 id——只有「一開始沒有 editApplicationId、使用者從空白
   // 表單開始填」這種情境才會用到。已經是透過「我的申請」帶 editApplicationId 進來的，
@@ -172,6 +189,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     // (這張單內容改過了，舊簽名等於簽在改版前的內容上，沒有意義)。
     setApplicantSignature(isDraft ? data.applicantSignature : null);
     setSubmitState({ status: "idle" });
+    setShowErrors(false);
     setDraftSaveError(null);
   }, [editApplicationId, editQuery.data, editQuery.isFetching]);
 
@@ -259,6 +277,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
     stagedAttachments.forEach((f) => URL.revokeObjectURL(f.previewUrl));
     setStagedAttachments([]);
     setSubmitState({ status: "idle" });
+    setShowErrors(false);
     onDoneEditing?.();
   };
 
@@ -348,20 +367,21 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   // 跟後端 validateApplicationInput 同一套規則：必填欄位不能空白；select 型欄位如果
   // 有填值，值必須是目前有效的選項之一(公司可能事後停用/改掉某個選項)。回傳 null
   // 代表這一列的自訂欄位都合法，否則回傳可以直接顯示給使用者看的錯誤訊息。
-  const getRowCustomFieldError = (row: ExpenseRowState): string | null => {
+  const getRowCustomFieldIssue = (row: ExpenseRowState): { fieldId: string; message: string } | null => {
     const category = expenseCategories.find((c) => c.id === row.categoryId);
     if (!category) return null;
     for (const link of getRowCustomFieldLinks(row)) {
       const field = config.customFields.find((f) => f.id === link.id);
       if (!field) continue;
       const value = (row.customFieldValues?.[field.id] ?? "").trim();
-      if (link.required && !value) return `費用項目「${category.name}」需要填寫「${field.name}」`;
+      if (link.required && !value) return { fieldId: field.id, message: `費用項目「${category.name}」需要填寫「${field.name}」` };
       if (value && field.fieldType === "select" && !field.options.some((o) => o.label === value)) {
-        return `費用項目「${category.name}」的「${field.name}」選項不正確，請重新選擇`;
+        return { fieldId: field.id, message: `費用項目「${category.name}」的「${field.name}」選項不正確，請重新選擇` };
       }
     }
     return null;
   };
+  const getRowCustomFieldError = (row: ExpenseRowState): string | null => getRowCustomFieldIssue(row)?.message ?? null;
   const updateRowCustomField = (index: number, fieldId: string, value: string) => {
     setRows((prev) =>
       prev.map((row, i) => (i === index ? { ...row, customFieldValues: { ...row.customFieldValues, [fieldId]: value } } : row))
@@ -374,6 +394,65 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const total = multiCurrencyEnabled
     ? validRows.reduce((sum, row) => sum + (amountInTWD(row) ?? 0), 0)
     : validRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+
+  // 完全沒動過的空白列(沒選項目、沒金額、什麼都沒填)送出時直接忽略，不算錯誤；只要動過任何
+  // 一個欄位，就必須是完整的一筆——以前只填一半的列(例如選了費用項目卻沒填金額)會被靜默丟掉，
+  // 使用者完全不知道那一筆沒送出去。
+  const isBlankRow = (row: ExpenseRowState) =>
+    !row.categoryId &&
+    !row.amount.trim() &&
+    !row.description.trim() &&
+    !(row.projectCode ?? "").trim() &&
+    !row.invoiceDate &&
+    !Object.values(row.customFieldValues ?? {}).some((v) => v?.trim());
+
+  // 一次檢查所有必填，依畫面由上到下的順序回傳問題清單(空陣列代表可以送出)。跟後端
+  // validateApplicationInput 同一套規則，後端是最後一道防線，這裡負責讓使用者看得到、找得到。
+  const validateForm = (): FormIssue[] => {
+    const issues: FormIssue[] = [];
+    if (!departmentId) issues.push({ key: "department", message: "請選擇部門" });
+    if (!applicationDate) issues.push({ key: "date", message: "請填寫申請日期" });
+    if (!expenseNatureId) issues.push({ key: "nature", message: "請選擇費用性質" });
+    const filled = rows.map((row, i) => ({ row, i })).filter(({ row }) => !isBlankRow(row));
+    if (filled.length === 0) {
+      issues.push({ key: rows.length > 0 ? "row-0-category" : "add-row", message: "請至少填寫一筆費用明細" });
+    }
+    for (const { row, i } of filled) {
+      const label = `第 ${i + 1} 筆`;
+      if (!row.categoryId) issues.push({ key: `row-${i}-category`, message: `${label}：請選擇費用項目` });
+      if (!(Number(row.amount) > 0)) {
+        issues.push({ key: `row-${i}-amount`, message: `${label}：請填寫大於 0 的金額(不需要這一筆請按「刪除」)` });
+      } else if (row.categoryId && multiCurrencyEnabled && amountInTWD(row) === null) {
+        issues.push({ key: `row-${i}-amount`, message: `${label}：幣別 ${row.currency} 尚未設定匯率，請聯絡管理員` });
+      }
+      if (row.categoryId && isProjectCodeInvalid(row)) {
+        issues.push({
+          key: `row-${i}-projectCode`,
+          message: `${label}：${isProjectCodeRequired(row) ? "請填寫 10 碼的專案編號" : "專案編號需為 10 碼"}`,
+        });
+      }
+      const customFieldIssue = getRowCustomFieldIssue(row);
+      if (customFieldIssue) issues.push({ key: `row-${i}-cf-${customFieldIssue.fieldId}`, message: `${label}：${customFieldIssue.message}` });
+    }
+    if (optionalFields.payeeInfo && !payeeName.trim()) issues.push({ key: "payee", message: "請填寫受款人" });
+    if (!applicantSignature) issues.push({ key: "signature", message: "請先簽名(送出前必填)" });
+    return issues;
+  };
+  const issues = showErrors ? validateForm() : [];
+  const errorKeys = new Set(issues.map((i) => i.key));
+  const hasError = (key: string) => errorKeys.has(key);
+  const errCls = (key: string) => (hasError(key) ? "border-destructive" : undefined);
+
+  // 桌面表格跟手機卡片是同一份資料渲染兩套版面(其中一套被 CSS 藏起來)，同一個 data-field 會
+  // 對到兩個元素——只挑「現在看得到」的那個去捲動/聚焦。
+  const focusField = (key: string) => {
+    const el = Array.from(document.querySelectorAll<HTMLElement>(`[data-field="${key}"]`)).find(
+      (e) => e.getClientRects().length > 0
+    );
+    if (!el) return;
+    el.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
+    el.focus({ preventScroll: true });
+  };
 
   // 列印版面要顯示的是人看得懂的名稱(部門/費用項目)，不是內部的 id，
   // 所以在這裡把目前表單狀態轉換成 PrintableApplicationForm 需要的形狀。
@@ -397,21 +476,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
   const expenseNatureName = expenseNatures.find((n) => n.id === expenseNatureId)?.name ?? "";
 
   const handleSubmit = async () => {
-    if (validRows.some(isProjectCodeInvalid)) {
-      setSubmitState({ status: "error", message: "有費用明細的專案編號未填寫或不是 10 碼，請檢查標紅的欄位" });
-      return;
-    }
-    const customFieldError = validRows.map(getRowCustomFieldError).find((e) => e);
-    if (customFieldError) {
-      setSubmitState({ status: "error", message: customFieldError });
-      return;
-    }
-    if (optionalFields.payeeInfo && !payeeName.trim()) {
-      setSubmitState({ status: "error", message: "請填寫受款人" });
-      return;
-    }
-    if (!applicantSignature) {
-      setSubmitState({ status: "error", message: "請先簽名再送出申請單" });
+    const found = validateForm();
+    if (found.length > 0) {
+      setShowErrors(true);
+      setSubmitState({ status: "idle" });
+      focusField(found[0].key);
       return;
     }
     setSubmitState({ status: "submitting" });
@@ -475,6 +544,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
       setSessionDraftId(null);
       setDraftSavedAt(null);
       setDraftSaveError(null);
+      setShowErrors(false);
       if (editApplicationId) onDoneEditing?.();
     } catch (err) {
       setSubmitState({ status: "error", message: err instanceof ApiError ? err.message : "送出失敗" });
@@ -559,7 +629,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               <div>
                 <Label>部門</Label>
                 <Select value={departmentId} onValueChange={setDepartmentId}>
-                  <SelectTrigger><SelectValue placeholder="請選擇" /></SelectTrigger>
+                  <SelectTrigger data-field="department" className={errCls("department")}><SelectValue placeholder="請選擇" /></SelectTrigger>
                   <SelectContent>
                     {departments.map((d) => (
                       <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
@@ -572,7 +642,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                 <div className="flex gap-1">
                   <Input
                     type="date"
-                    className="min-w-0 flex-1"
+                    data-field="date"
+                    className={cn("min-w-0 flex-1", errCls("date"))}
                     value={applicationDate}
                     onChange={(e) => setApplicationDate(e.target.value)}
                   />
@@ -589,7 +660,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               <div>
                 <Label>費用性質</Label>
                 <Select value={expenseNatureId} onValueChange={setExpenseNatureId}>
-                  <SelectTrigger><SelectValue placeholder="請選擇" /></SelectTrigger>
+                  <SelectTrigger data-field="nature" className={errCls("nature")}><SelectValue placeholder="請選擇" /></SelectTrigger>
                   <SelectContent>
                     {expenseNatures.map((n) => (
                       <SelectItem key={n.id} value={n.id}>{n.name}</SelectItem>
@@ -641,7 +712,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                       <TableRow key={i}>
                         <TableCell className="sticky left-0 z-10 border-r bg-white">
                           <Select value={row.categoryId} onValueChange={(v) => updateRow(i, { categoryId: v })}>
-                            <SelectTrigger><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
+                            <SelectTrigger data-field={`row-${i}-category`} className={errCls(`row-${i}-category`)}><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
                             <SelectContent>
                               {expenseCategories.map((c) => (
                                 <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
@@ -656,6 +727,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                               onChange={(e) => updateRow(i, { projectCode: e.target.value })}
                               placeholder={isProjectCodeRequired(row) ? "專案編號(需10碼)" : "專案編號"}
                               maxLength={10}
+                              data-field={`row-${i}-projectCode`}
                               className={isProjectCodeInvalid(row) ? "border-destructive" : undefined}
                             />
                           </TableCell>
@@ -673,7 +745,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                                     onValueChange={(v) => updateRowCustomField(i, field.id, v)}
                                   >
                                     <SelectTrigger
-                                      className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                      data-field={`row-${i}-cf-${field.id}`}
+                                      className={(link.required && !row.customFieldValues?.[field.id]) || hasError(`row-${i}-cf-${field.id}`) ? "border-destructive" : undefined}
                                     >
                                       <SelectValue placeholder="請選擇" />
                                     </SelectTrigger>
@@ -704,7 +777,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                                   value={row.customFieldValues?.[field.id] ?? ""}
                                   onChange={(e) => updateRowCustomField(i, field.id, e.target.value)}
                                   placeholder={link.required ? `${field.name}(必填)` : field.name}
-                                  className={link.required && !(row.customFieldValues?.[field.id] ?? "").trim() ? "border-destructive" : undefined}
+                                  data-field={`row-${i}-cf-${field.id}`}
+                                  className={(link.required && !(row.customFieldValues?.[field.id] ?? "").trim()) || hasError(`row-${i}-cf-${field.id}`) ? "border-destructive" : undefined}
                                 />
                               )}
                             </TableCell>
@@ -751,7 +825,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                           </TableCell>
                         )}
                         <TableCell>
-                          <Input type="number" value={row.amount} onChange={(e) => updateRow(i, { amount: e.target.value })} placeholder="0" />
+                          <Input type="number" data-field={`row-${i}-amount`} className={errCls(`row-${i}-amount`)} value={row.amount} onChange={(e) => updateRow(i, { amount: e.target.value })} placeholder="0" />
                         </TableCell>
                         {multiCurrencyEnabled && (
                           <TableCell className="text-sm text-muted-foreground">
@@ -794,7 +868,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                     <div>
                       <Label>費用項目</Label>
                       <Select value={row.categoryId} onValueChange={(v) => updateRow(i, { categoryId: v })}>
-                        <SelectTrigger><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
+                        <SelectTrigger data-field={`row-${i}-category`} className={errCls(`row-${i}-category`)}><SelectValue placeholder="選擇費用項目" /></SelectTrigger>
                         <SelectContent>
                           {expenseCategories.map((c) => (
                             <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
@@ -810,7 +884,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                           onChange={(e) => updateRow(i, { projectCode: e.target.value })}
                           placeholder={isProjectCodeRequired(row) ? "專案編號(需10碼)" : "專案編號"}
                           maxLength={10}
-                          className={isProjectCodeInvalid(row) ? "border-destructive" : undefined}
+                          data-field={`row-${i}-projectCode`}
+                              className={isProjectCodeInvalid(row) ? "border-destructive" : undefined}
                         />
                       </div>
                     )}
@@ -832,7 +907,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                                 onValueChange={(v) => updateRowCustomField(i, field.id, v)}
                               >
                                 <SelectTrigger
-                                  className={link.required && !row.customFieldValues?.[field.id] ? "border-destructive" : undefined}
+                                  data-field={`row-${i}-cf-${field.id}`}
+                                      className={(link.required && !row.customFieldValues?.[field.id]) || hasError(`row-${i}-cf-${field.id}`) ? "border-destructive" : undefined}
                                 >
                                   <SelectValue placeholder="請選擇" />
                                 </SelectTrigger>
@@ -862,7 +938,8 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                               value={row.customFieldValues?.[field.id] ?? ""}
                               onChange={(e) => updateRowCustomField(i, field.id, e.target.value)}
                               placeholder={field.name}
-                              className={link.required && !(row.customFieldValues?.[field.id] ?? "").trim() ? "border-destructive" : undefined}
+                              data-field={`row-${i}-cf-${field.id}`}
+                                  className={(link.required && !(row.customFieldValues?.[field.id] ?? "").trim()) || hasError(`row-${i}-cf-${field.id}`) ? "border-destructive" : undefined}
                             />
                           )}
                         </div>
@@ -912,7 +989,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                       )}
                       <div>
                         <Label>金額 {multiCurrencyEnabled ? "" : "(NTD)"}</Label>
-                        <Input type="number" value={row.amount} onChange={(e) => updateRow(i, { amount: e.target.value })} placeholder="0" />
+                        <Input type="number" data-field={`row-${i}-amount`} className={errCls(`row-${i}-amount`)} value={row.amount} onChange={(e) => updateRow(i, { amount: e.target.value })} placeholder="0" />
                       </div>
                     </div>
                     {multiCurrencyEnabled && (
@@ -931,8 +1008,9 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
 
               <Button
                 className="mt-2"
+                data-field="add-row"
                 onClick={() => {
-                  setRows((prev) => [...prev, emptyRow()]);
+                  setRows((prev) => [...prev, nextRow(prev[prev.length - 1])]);
                   // 新增一列後把桌面表格的水平捲軸歸位到最左邊——不然使用者剛才如果為了
                   // 看後面的欄位(自訂欄位/金額)往右滑過，新增出來的空白列(從「費用項目」
                   // 這個最左邊的欄位開始填)會被捲到看不到，還要自己往回滑才找得到。
@@ -956,6 +1034,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                       value={payeeName}
                       onChange={(e) => setPayeeName(e.target.value)}
                       placeholder="請輸入受款人資訊"
+                      data-field="payee"
                       className={!payeeName.trim() ? "border-destructive" : undefined}
                     />
                     <p className="mt-1 text-xs text-muted-foreground">(第一次配合請提供銀行存摺)</p>
@@ -1006,7 +1085,11 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
             <ApprovalChain stages={approvalStages} applicantSignature={applicantSignature} />
 
             {/* 送出前必須完成簽名：手寫(滑鼠/觸控板/觸控螢幕皆可)或上傳簽名檔 */}
-            <div className="rounded border border-dashed border-slate-300 p-4">
+            <div
+              data-field="signature"
+              tabIndex={-1}
+              className={cn("rounded border border-dashed border-slate-300 p-4 outline-none", hasError("signature") && "border-destructive")}
+            >
               <SignaturePad value={applicantSignature} onChange={setApplicantSignature} label="申請人簽名(送出前必填)" auth={auth} />
             </div>
 
@@ -1016,6 +1099,21 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
                 <p className="text-xs text-muted-foreground">
                   已儲存草稿({new Date(draftSavedAt).toLocaleTimeString("zh-TW")})
                 </p>
+              )}
+              {issues.length > 0 && (
+                <div role="alert" className="w-full rounded border border-destructive bg-red-50 p-3 text-sm text-destructive">
+                  <div className="font-semibold">還有 {issues.length} 項資料需要補齊才能送出(點項目可跳到該欄位)：</div>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                    {issues.slice(0, 8).map((issue) => (
+                      <li key={`${issue.key}-${issue.message}`}>
+                        <button type="button" className="text-left underline" onClick={() => focusField(issue.key)}>
+                          {issue.message}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {issues.length > 8 && <div className="mt-1">…另外還有 {issues.length - 8} 項</div>}
+                </div>
               )}
               {submitState.status === "success" && <p className="text-sm text-green-600">{submitState.message}</p>}
               {submitState.status === "error" && <p className="text-sm text-destructive">{submitState.message}</p>}
@@ -1030,18 +1128,7 @@ export function DynamicExpenseForm({ auth, editApplicationId, onDoneEditing }: P
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={
-                  submitState.status === "submitting" ||
-                  !departmentId ||
-                  !expenseNatureId ||
-                  !applicationDate ||
-                  total <= 0 ||
-                  (multiCurrencyEnabled && rows.some((r) => r.categoryId && Number(r.amount) > 0 && amountInTWD(r) === null)) ||
-                  validRows.some(isProjectCodeInvalid) ||
-                  validRows.some((r) => !!getRowCustomFieldError(r)) ||
-                  (optionalFields.payeeInfo && !payeeName.trim()) ||
-                  !applicantSignature
-                }
+                disabled={submitState.status === "submitting"}
               >
                 {submitState.status === "submitting" ? "送出中…" : editApplicationId && !isDraftMode ? "重新送出申請" : "送出申請"}
               </Button>
