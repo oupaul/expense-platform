@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import { useCompanyConfig } from "@/hooks/useCompanyConfig";
 import { prewarmMsalInstance } from "@/lib/msal";
+import { clearLinkedCompanyFromUrl, getLinkedCompany, getRememberedCompany } from "@/lib/loginCompany";
 
 interface Props {
   onLogin: (companySlug: string, email: string, password: string) => Promise<unknown>;
@@ -24,7 +25,10 @@ interface Props {
 const SHOW_DEMO_HINT = import.meta.env.DEV;
 
 export function LoginForm({ onLogin, onLoginWithM365, m365Processing, m365Error, notice }: Props) {
-  const [companySlug, setCompanySlug] = useState(SHOW_DEMO_HINT ? "demo-a" : "");
+  // 公司代號的來源，由優先到保底：專屬登入連結(?c=acme，會鎖定、隱藏輸入框)、瀏覽器記住的上次
+  // 登入的公司、本機開發的示範預填。連結帶進來的才鎖定，記住的只是預填，使用者隨時可以改。
+  const [lockedSlug, setLockedSlug] = useState<string | null>(getLinkedCompany);
+  const [companySlug, setCompanySlug] = useState(() => getLinkedCompany() ?? getRememberedCompany() ?? (SHOW_DEMO_HINT ? "demo-a" : ""));
   const [email, setEmail] = useState(SHOW_DEMO_HINT ? "applicant@demo-a.test" : "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +43,7 @@ export function LoginForm({ onLogin, onLoginWithM365, m365Processing, m365Error,
     const timer = setTimeout(() => setDebouncedSlug(companySlug.trim()), 400);
     return () => clearTimeout(timer);
   }, [companySlug]);
-  const { data: config } = useCompanyConfig(debouncedSlug);
+  const { data: config, isError: configError } = useCompanyConfig(debouncedSlug);
   const heading = config?.branding.name ? `${config.branding.name} 登入` : "費用申請系統登入";
 
   // 一知道這家公司的 M365 設定就先把 MSAL 建好、initialize 完，不用等使用者點下按鈕
@@ -97,8 +101,34 @@ export function LoginForm({ onLogin, onLoginWithM365, m365Processing, m365Error,
       <form onSubmit={handleSubmit} className="w-80 space-y-4 rounded-lg bg-white p-8 shadow">
         <h1 className="text-lg font-bold">{heading}</h1>
         <div>
-          <Label>公司代號</Label>
-          <Input value={companySlug} onChange={(e) => setCompanySlug(e.target.value)} placeholder="例如 acme" />
+          {lockedSlug ? (
+            <>
+              <Label>公司</Label>
+              <div className="flex items-center justify-between gap-2 rounded-md border bg-slate-50 px-3 py-2 text-sm">
+                <span className="truncate">{config?.branding.name ?? lockedSlug}</span>
+                <button
+                  type="button"
+                  className="shrink-0 text-xs text-muted-foreground underline"
+                  onClick={() => {
+                    setLockedSlug(null);
+                    clearLinkedCompanyFromUrl();
+                  }}
+                >
+                  改用其他公司
+                </button>
+              </div>
+              {configError && (
+                <p className="mt-1 text-xs text-destructive">
+                  找不到這個公司代號，請確認連結是否正確，或按「改用其他公司」手動輸入。
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <Label>公司代號</Label>
+              <Input value={companySlug} onChange={(e) => setCompanySlug(e.target.value)} placeholder="例如 acme" />
+            </>
+          )}
         </div>
         <div>
           <Label>Email</Label>

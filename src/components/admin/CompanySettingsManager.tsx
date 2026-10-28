@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { apiFetch, apiUploadFile, ApiError } from "@/lib/api";
+import { buildLoginLink } from "@/lib/loginCompany";
 import type { AuthState } from "@/types/auth";
 import type { CompanyFormConfig, OptionalFields } from "@/types/company-config";
 
@@ -43,6 +45,7 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
   // zod 擋下來才知道——後端的驗證訊息是整包 flatten() 物件，前端 apiFetch 只認得出
   // 純字串的 error，顯示出來只會是「請求失敗 (400)」，不像其他欄位一樣看得懂哪裡錯。
   const [clientIdError, setClientIdError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["company-config", auth.user.companySlug] });
   const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : "更新失敗");
@@ -187,6 +190,35 @@ export function CompanySettingsManager({ auth, config }: { auth: AuthState; conf
           <p className="mt-1 text-xs text-muted-foreground">
             填了的話，email 通知裡會附上「查看並簽核」的連結直接連到這個網址；留空的話信件
             就只有文字說明，沒有連結。
+          </p>
+        </div>
+        <div className="col-span-2">
+          <Label>專屬登入連結</Label>
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={buildLoginLink(config.branding.appUrl, auth.user.companySlug)}
+              onFocus={(e) => e.target.select()}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(buildLoginLink(config.branding.appUrl, auth.user.companySlug));
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 2000);
+                } catch {
+                  // 剪貼簿被瀏覽器封鎖時，輸入框點一下會自動全選，手動複製即可
+                }
+              }}
+            >
+              {linkCopied ? "已複製" : "複製"}
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            把這條連結發給員工(或加進書籤)，開啟後登入頁會自動帶入公司代號、不用再輸入。沒用連結的人，瀏覽器也會
+            記住上次登入的公司代號。
           </p>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { getMsalInstance } from "@/lib/msal";
 import { AUTH_EXPIRED_NOTICE, isTokenExpired } from "@/lib/jwt";
+import { rememberCompany } from "@/lib/loginCompany";
 import { useAuthExpiry } from "@/hooks/useAuthExpiry";
 import type { AuthState } from "@/types/auth";
 
@@ -79,6 +80,7 @@ export function useAuth() {
           body: { companySlug: pending.companySlug, idToken: redirectResult.idToken },
         });
         setNotice(null);
+        rememberCompany(pending.companySlug);
         setAuth(result);
       } catch (err) {
         // 這裡是登入完導回來後唯一能顯示詳細錯誤的地方——這時候已經是全新的一次
@@ -98,6 +100,7 @@ export function useAuth() {
       body: { companySlug, email, password },
     });
     setNotice(null);
+    rememberCompany(companySlug);
     setAuth(result);
     return result;
   }, []);
